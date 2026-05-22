@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
-const API = 'https://medicore-backend-6q33.onrender.com';
+const API = 'https://medicore-backend-6q33.onrender.com/api';
 
 async function api(path, method = "GET", body = null, token = null) {
   const opts = {
