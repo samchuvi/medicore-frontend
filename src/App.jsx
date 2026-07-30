@@ -123,7 +123,7 @@ function Table({ columns, data, actions }) {
 }
 
 function LoginPage({ onLogin }) {
-  const [form, setForm] = useState({ username:"admin", password:"password" });
+  const [form, setForm] = useState({ username:"", password:"" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const handleSubmit = async () => {
