@@ -144,7 +144,6 @@ function LoginPage({ onLogin }) {
         <Field label="Username"><input style={inp} value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} /></Field>
         <Field label="Password"><input style={inp} type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} /></Field>
         <button onClick={handleSubmit} disabled={loading} style={{ ...btnP, width:"100%", justifyContent:"center", marginTop:8, padding:"13px 24px", fontSize:15 }}>{loading?"Signing in...":"Sign In"}</button>
-        <p style={{ textAlign:"center", fontSize:12, color:"#aaa", marginTop:16 }}>Default: admin / password</p>
       </div>
     </div>
   );
@@ -543,6 +542,7 @@ function Transactions({ token }) {
   const load=useCallback(async()=>{ const [tx,p,b]=await Promise.all([api("/transactions","GET",null,token),api("/patients","GET",null,token),api("/bills","GET",null,token)]); setData(tx);setPatients(p);setBills(b); },[token]);
   useEffect(()=>{load();},[load]);
   const save=async()=>{ await api("/transactions","POST",form,token); load();setModal(null);setForm({}); };
+  const del=async(id)=>{ if(confirm("Delete transaction?")){ await api(`/transactions/${id}`,"DELETE",null,token); load(); } };
   const pName=id=>patients.find(p=>p.id===id)?.name||id;
   const total=data.reduce((s,t)=>s+(parseFloat(t.amount)||0),0);
   return (
@@ -556,7 +556,9 @@ function Transactions({ token }) {
         <div style={{ fontSize:32, fontWeight:800, marginTop:4 }}>UGX {total.toLocaleString()}</div>
       </div>
       <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
-        <Table columns={[{key:"txRef",label:"Ref #"},{key:"patientId",label:"Patient",render:v=>pName(v)},{key:"amount",label:"Amount",render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"method",label:"Method"},{key:"recordedBy",label:"Recorded By"},{key:"note",label:"Note"},{key:"createdAt",label:"Date",render:v=>new Date(v).toLocaleDateString()}]} data={data}/>
+        <Table columns={[{key:"txRef",label:"Ref #"},{key:"patientId",label:"Patient",render:v=>pName(v)},{key:"amount",label:"Amount",render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"method",label:"Method"},{key:"recordedBy",label:"Recorded By"},{key:"note",label:"Note"},{key:"createdAt",label:"Date",render:v=>new Date(v).toLocaleDateString()}]} data={data}
+          actions={row=>[<button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>]}
+        />
       </div>
       {modal==="add"&&(
         <Modal title="Record Payment" onClose={()=>setModal(null)}>
