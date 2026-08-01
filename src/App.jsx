@@ -537,7 +537,7 @@ function Billing({ token }) {
   );
 }
 
-function Transactions({ token }) {
+function Transactions({ token, user }) {
   const [data,setData]=useState([]); const [patients,setPatients]=useState([]); const [bills,setBills]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
   const load=useCallback(async()=>{ const [tx,p,b]=await Promise.all([api("/transactions","GET",null,token),api("/patients","GET",null,token),api("/bills","GET",null,token)]); setData(tx);setPatients(p);setBills(b); },[token]);
   useEffect(()=>{load();},[load]);
@@ -557,7 +557,7 @@ function Transactions({ token }) {
       </div>
       <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
         <Table columns={[{key:"txRef",label:"Ref #"},{key:"patientId",label:"Patient",render:v=>pName(v)},{key:"amount",label:"Amount",render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"method",label:"Method"},{key:"recordedBy",label:"Recorded By"},{key:"note",label:"Note"},{key:"createdAt",label:"Date",render:v=>new Date(v).toLocaleDateString()}]} data={data}
-          actions={row=>[<button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>]}
+         actions={row=>[user.role==="admin"&&<button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>].filter(Boolean)}
         />
       </div>
       {modal==="add"&&(
