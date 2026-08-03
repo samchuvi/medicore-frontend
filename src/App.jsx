@@ -2,6 +2,26 @@ import { useState, useEffect, useCallback } from "react";
 
 const API = 'https://medicore-backend-6q33.onrender.com/api';
 
+// ─── THEME ───────────────────────────────────────────────────────────────────
+const T = {
+  green:      "#2E7D32",
+  greenDark:  "#1B5E20",
+  greenLight: "#E8F5E9",
+  greenMid:   "#43A047",
+  blue:       "#1976D2",
+  blueDark:   "#0D47A1",
+  blueLight:  "#E3F2FD",
+  white:      "#FFFFFF",
+  bg:         "#E8F5E9",
+  text:       "#263238",
+  textLight:  "#546E7A",
+  border:     "#C8E6C9",
+  amber:      "#F9A825",
+  red:        "#C62828",
+  redLight:   "#FFEBEE",
+  shadow:     "0 2px 12px rgba(46,125,50,0.08)",
+};
+
 async function api(path, method = "GET", body = null, token = null) {
   const opts = {
     method,
@@ -52,9 +72,9 @@ function Modal({ title, onClose, children }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
       <div style={{ background:"#fff", borderRadius:16, width:"100%", maxWidth:560, maxHeight:"90vh", overflow:"auto", boxShadow:"0 24px 80px rgba(0,0,0,0.2)" }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"20px 24px", borderBottom:"1px solid #f0f0f0" }}>
-          <h3 style={{ margin:0, fontSize:18, fontWeight:700, color:"#1a1a2e" }}>{title}</h3>
-          <button onClick={onClose} style={{ background:"#f5f5f5", border:"none", borderRadius:8, padding:8, cursor:"pointer" }}><Icon name="close" size={16} /></button>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"20px 24px", borderBottom:"1px solid #C8E6C9" }}>
+          <h3 style={{ margin:0, fontSize:18, fontWeight:700, color:"#1B5E20" }}>{title}</h3>
+          <button onClick={onClose} style={{ background:"#E8F5E9", border:"1px solid #C8E6C9", borderRadius:8, padding:8, cursor:"pointer" }}><Icon name="close" size={16} /></button>
         </div>
         <div style={{ padding:24 }}>{children}</div>
       </div>
@@ -65,31 +85,31 @@ function Modal({ title, onClose, children }) {
 function Field({ label, children }) {
   return (
     <div style={{ marginBottom:16 }}>
-      <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#666", marginBottom:6, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</label>
+      <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#546E7A", marginBottom:6, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</label>
       {children}
     </div>
   );
 }
 
-const inp = { width:"100%", padding:"10px 12px", border:"1.5px solid #e8e8e8", borderRadius:8, fontSize:14, color:"#1a1a2e", outline:"none", boxSizing:"border-box", background:"#fafafa", fontFamily:"inherit" };
-const btnP = { background:"linear-gradient(135deg,#1a1a2e,#16213e)", color:"#fff", border:"none", borderRadius:10, padding:"11px 24px", fontSize:14, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:8 };
-const btnD = { background:"#fff0f0", color:"#e53e3e", border:"1px solid #ffd0d0", borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 };
-const btnE = { background:"#f0f4ff", color:"#3b6fd4", border:"1px solid #d0dcff", borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 };
-const btnG = { background:"#f0fff4", color:"#38a169", border:"1px solid #c6f6d5", borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 };
+const inp = { width:"100%", padding:"10px 12px", border:"1.5px solid #C8E6C9", borderRadius:8, fontSize:14, color:"#263238", outline:"none", boxSizing:"border-box", background:"#FFFFFF", fontFamily:"inherit" };
+const btnP = { background:"linear-gradient(135deg,#2E7D32,#1B5E20)", color:"#fff", border:"none", borderRadius:10, padding:"11px 24px", fontSize:14, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:8 };
+const btnD = { background:"#FFEBEE", color:"#C62828", border:"1px solid #FFCDD2", borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 };
+const btnE = { background:"#E3F2FD", color:"#1976D2", border:"1px solid #BBDEFB", borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 };
+const btnG = { background:"#E8F5E9", color:"#2E7D32", border:"1px solid #C8E6C9", borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 };
 
 function Badge({ status }) {
-  const map = { scheduled:["#3b6fd4","#eef2ff"], completed:["#38a169","#f0fff4"], cancelled:["#e53e3e","#fff5f5"], pending:["#d97706","#fffbeb"], paid:["#38a169","#f0fff4"], active:["#38a169","#f0fff4"], inactive:["#e53e3e","#fff5f5"], admin:["#7c3aed","#f5f3ff"], doctor:["#0891b2","#ecfeff"], receptionist:["#d97706","#fffbeb"], pharmacist:["#059669","#ecfdf5"] };
+  const map = { scheduled:["#1976D2","#E3F2FD"], completed:["#2E7D32","#E8F5E9"], cancelled:["#e53e3e","#fff5f5"], pending:["#d97706","#fffbeb"], paid:["#2E7D32","#E8F5E9"], active:["#2E7D32","#E8F5E9"], inactive:["#e53e3e","#fff5f5"], admin:["#7c3aed","#f5f3ff"], doctor:["#1976D2","#E3F2FD"], receptionist:["#d97706","#fffbeb"], pharmacist:["#2E7D32","#E8F5E9"] };
   const [color,bg] = map[status] || ["#888","#f5f5f5"];
   return <span style={{ background:bg, color, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{status}</span>;
 }
 
 function StatCard({ label, value, color, icon, sub }) {
   return (
-    <div style={{ background:"#fff", borderRadius:16, padding:"22px 24px", boxShadow:"0 2px 12px rgba(0,0,0,0.06)", borderLeft:`4px solid ${color}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+    <div style={{ background:"#fff", borderRadius:16, padding:"22px 24px", boxShadow:"0 2px 12px rgba(46,125,50,0.08)", borderLeft:`4px solid ${color}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
       <div>
-        <div style={{ fontSize:13, color:"#888", fontWeight:500, marginBottom:6 }}>{label}</div>
-        <div style={{ fontSize:28, fontWeight:800, color:"#1a1a2e" }}>{value}</div>
-        {sub && <div style={{ fontSize:12, color:"#aaa", marginTop:4 }}>{sub}</div>}
+        <div style={{ fontSize:13, color:"#546E7A", fontWeight:500, marginBottom:6 }}>{label}</div>
+        <div style={{ fontSize:28, fontWeight:800, color:"#263238" }}>{value}</div>
+        {sub && <div style={{ fontSize:12, color:"#90A4AE", marginTop:4 }}>{sub}</div>}
       </div>
       <div style={{ background:color+"18", borderRadius:12, padding:14, color }}><Icon name={icon} size={22} /></div>
     </div>
@@ -101,17 +121,17 @@ function Table({ columns, data, actions }) {
     <div style={{ overflowX:"auto" }}>
       <table style={{ width:"100%", borderCollapse:"collapse", fontSize:14 }}>
         <thead>
-          <tr style={{ background:"#f8f9ff" }}>
-            {columns.map(c => <th key={c.key} style={{ padding:"12px 16px", textAlign:"left", fontWeight:600, color:"#555", fontSize:12, textTransform:"uppercase", letterSpacing:0.5, borderBottom:"2px solid #eef0f8" }}>{c.label}</th>)}
-            {actions && <th style={{ padding:"12px 16px", textAlign:"right", color:"#555", fontSize:12, textTransform:"uppercase", borderBottom:"2px solid #eef0f8" }}>Actions</th>}
+          <tr style={{ background:"#F1F8E9" }}>
+            {columns.map(c => <th key={c.key} style={{ padding:"12px 16px", textAlign:"left", fontWeight:600, color:"#546E7A", fontSize:12, textTransform:"uppercase", letterSpacing:0.5, borderBottom:"2px solid #C8E6C9" }}>{c.label}</th>)}
+            {actions && <th style={{ padding:"12px 16px", textAlign:"right", color:"#546E7A", fontSize:12, textTransform:"uppercase", borderBottom:"2px solid #C8E6C9" }}>Actions</th>}
           </tr>
         </thead>
         <tbody>
           {data.length === 0
-            ? <tr><td colSpan={columns.length+(actions?1:0)} style={{ textAlign:"center", padding:40, color:"#aaa" }}>No records found</td></tr>
+            ? <tr><td colSpan={columns.length+(actions?1:0)} style={{ textAlign:"center", padding:40, color:"#90A4AE" }}>No records found</td></tr>
             : data.map((row,i) => (
-              <tr key={row.id||i} style={{ borderBottom:"1px solid #f0f0f0" }}>
-                {columns.map(c => <td key={c.key} style={{ padding:"13px 16px", color:"#333", verticalAlign:"middle" }}>{c.render ? c.render(row[c.key],row) : (row[c.key]??"—")}</td>)}
+              <tr key={row.id||i} style={{ borderBottom:"1px solid #C8E6C9" }}>
+                {columns.map(c => <td key={c.key} style={{ padding:"13px 16px", color:"#263238", verticalAlign:"middle" }}>{c.render ? c.render(row[c.key],row) : (row[c.key]??"—")}</td>)}
                 {actions && <td style={{ padding:"10px 16px", textAlign:"right" }}><div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>{actions(row)}</div></td>}
               </tr>
             ))
@@ -133,12 +153,12 @@ function LoginPage({ onLogin }) {
     finally { setLoading(false); }
   };
   return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#1B5E20 0%,#2E7D32 50%,#1976D2 100%)", display:"flex", alignItems:"center", justifyContent:"center" }}>
       <div style={{ background:"#fff", borderRadius:24, padding:40, width:"100%", maxWidth:400, boxShadow:"0 32px 100px rgba(0,0,0,0.3)" }}>
         <div style={{ textAlign:"center", marginBottom:32 }}>
-          <div style={{ width:64, height:64, background:"linear-gradient(135deg,#1a1a2e,#0f3460)", borderRadius:20, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px", fontSize:28 }}>🏥</div>
-          <h1 style={{ margin:0, fontSize:24, fontWeight:800, color:"#1a1a2e" }}>MediCore HMS</h1>
-          <p style={{ margin:"6px 0 0", color:"#888", fontSize:14 }}>Hospital Management System</p>
+          <div style={{ width:64, height:64, background:"linear-gradient(135deg,#2E7D32,#1976D2)", borderRadius:20, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px", fontSize:28 }}>🏥</div>
+          <h1 style={{ margin:0, fontSize:24, fontWeight:800, color:"#263238" }}>Byarwanga Medical Centre</h1>
+          <p style={{ margin:"6px 0 0", color:"#546E7A", fontSize:14 }}>Clinic Management System</p>
         </div>
         {error && <div style={{ background:"#fff5f5", border:"1px solid #ffd0d0", borderRadius:8, padding:"10px 14px", color:"#e53e3e", fontSize:13, marginBottom:16 }}>{error}</div>}
         <Field label="Username"><input style={inp} value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} /></Field>
@@ -152,47 +172,47 @@ function LoginPage({ onLogin }) {
 function Dashboard({ token, user }) {
   const [stats, setStats] = useState(null);
   useEffect(()=>{ api("/stats","GET",null,token).then(setStats).catch(()=>{}); },[token]);
-  if (!stats) return <div style={{ padding:40, color:"#888" }}>Loading...</div>;
+  if (!stats) return <div style={{ padding:40, color:"#546E7A" }}>Loading...</div>;
   const role = user.role;
   return (
     <div>
       <div style={{ marginBottom:24 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1a1a2e" }}>Welcome, {user.name} 👋</h2>
-        <p style={{ margin:"4px 0 0", color:"#888", fontSize:14 }}><Badge status={role} /></p>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>Welcome, {user.name} 👋</h2>
+        <p style={{ margin:"4px 0 0", color:"#546E7A", fontSize:14 }}><Badge status={role} /></p>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:16, marginBottom:32 }}>
         {role==="admin" && <>
-          <StatCard label="Total Patients" value={stats.totalPatients} color="#3b6fd4" icon="patients" />
-          <StatCard label="Doctors" value={stats.totalDoctors} color="#38a169" icon="doctors" />
-          <StatCard label="Staff" value={stats.totalStaff} color="#805ad5" icon="staff" />
-          <StatCard label="System Users" value={stats.totalUsers} color="#0891b2" icon="users" />
-          <StatCard label="Today's Appointments" value={stats.todayAppointments} color="#d97706" icon="appointments" />
-          <StatCard label="Pending Bills" value={stats.pendingBills} color="#e53e3e" icon="billing" />
-          <StatCard label="Total Revenue" value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="#0891b2" icon="transactions" />
-          <StatCard label="Low Stock" value={stats.lowStockItems} color="#dc2626" icon="pharmacy" />
+          <StatCard label="Total Patients" value={stats.totalPatients} color="#1976D2" icon="patients" />
+          <StatCard label="Doctors" value={stats.totalDoctors} color="#2E7D32" icon="doctors" />
+          <StatCard label="Staff" value={stats.totalStaff} color="#6A1B9A" icon="staff" />
+          <StatCard label="System Users" value={stats.totalUsers} color="#43A047" icon="users" />
+          <StatCard label="Today's Appointments" value={stats.todayAppointments} color="#F9A825" icon="appointments" />
+          <StatCard label="Pending Bills" value={stats.pendingBills} color="#C62828" icon="billing" />
+          <StatCard label="Total Revenue" value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="#1976D2" icon="transactions" />
+          <StatCard label="Low Stock" value={stats.lowStockItems} color="#C62828" icon="pharmacy" />
         </>}
         {role==="doctor" && <>
-          <StatCard label="Total Patients" value={stats.totalPatients} color="#3b6fd4" icon="patients" />
-          <StatCard label="My Appointments" value={stats.myAppointments} color="#d97706" icon="appointments" />
-          <StatCard label="Today's Appointments" value={stats.todayAppointments} color="#38a169" icon="appointments" />
-          <StatCard label="My Records" value={stats.myRecords} color="#805ad5" icon="records" />
-          <StatCard label="Low Stock Medicines" value={stats.lowStockItems} color="#dc2626" icon="pharmacy" />
+          <StatCard label="Total Patients" value={stats.totalPatients} color="#1976D2" icon="patients" />
+          <StatCard label="My Appointments" value={stats.myAppointments} color="#F9A825" icon="appointments" />
+          <StatCard label="Today's Appointments" value={stats.todayAppointments} color="#2E7D32" icon="appointments" />
+          <StatCard label="My Records" value={stats.myRecords} color="#6A1B9A" icon="records" />
+          <StatCard label="Low Stock Medicines" value={stats.lowStockItems} color="#C62828" icon="pharmacy" />
         </>}
         {role==="receptionist" && <>
-          <StatCard label="Total Patients" value={stats.totalPatients} color="#3b6fd4" icon="patients" />
-          <StatCard label="Today's Appointments" value={stats.todayAppointments} color="#d97706" icon="appointments" />
-          <StatCard label="Pending Bills" value={stats.pendingBills} color="#e53e3e" icon="billing" />
-          <StatCard label="Revenue Collected" value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="#0891b2" icon="transactions" />
+          <StatCard label="Total Patients" value={stats.totalPatients} color="#1976D2" icon="patients" />
+          <StatCard label="Today's Appointments" value={stats.todayAppointments} color="#F9A825" icon="appointments" />
+          <StatCard label="Pending Bills" value={stats.pendingBills} color="#C62828" icon="billing" />
+          <StatCard label="Revenue Collected" value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="#2E7D32" icon="transactions" />
         </>}
         {role==="pharmacist" && <>
-          <StatCard label="Total Items" value={stats.totalItems} color="#3b6fd4" icon="pharmacy" />
-          <StatCard label="Low Stock" value={stats.lowStockItems} color="#dc2626" icon="alert" sub="Qty < 10" />
-          <StatCard label="Expiring Soon" value={stats.expiringSoon} color="#d97706" icon="alert" sub="Within 30 days" />
-          <StatCard label="Out of Stock" value={stats.outOfStock} color="#e53e3e" icon="alert" />
+          <StatCard label="Total Items" value={stats.totalItems} color="#1976D2" icon="pharmacy" />
+          <StatCard label="Low Stock" value={stats.lowStockItems} color="#C62828" icon="alert" sub="Qty < 10" />
+          <StatCard label="Expiring Soon" value={stats.expiringSoon} color="#F9A825" icon="alert" sub="Within 30 days" />
+          <StatCard label="Out of Stock" value={stats.outOfStock} color="#C62828" icon="alert" />
         </>}
       </div>
       {stats.recentPatients && (
-        <div style={{ background:"#fff", borderRadius:16, padding:24, boxShadow:"0 2px 12px rgba(0,0,0,0.06)" }}>
+        <div style={{ background:"#fff", borderRadius:16, padding:24, boxShadow:"0 2px 12px rgba(46,125,50,0.08)" }}>
           <h3 style={{ margin:"0 0 16px", fontSize:16, fontWeight:700 }}>Recent Patients</h3>
           <Table columns={[{key:"name",label:"Name"},{key:"age",label:"Age"},{key:"gender",label:"Gender"},{key:"phone",label:"Phone"},{key:"createdAt",label:"Registered",render:v=>new Date(v).toLocaleDateString()}]} data={stats.recentPatients} />
         </div>
@@ -211,10 +231,10 @@ function UserManagement({ token }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1a1a2e" }}>User Management</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>User Management</h2>
         <button style={btnP} onClick={()=>{setForm({});setErr("");setModal("add");}}><Icon name="plus" size={16}/> Add User</button>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
         <Table columns={[{key:"name",label:"Name"},{key:"username",label:"Username"},{key:"role",label:"Role",render:v=><Badge status={v}/>},{key:"status",label:"Status",render:v=><Badge status={v}/>},{key:"createdAt",label:"Created",render:v=>new Date(v).toLocaleDateString()}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm({...row,password:""});setErr("");setModal("add");}}><Icon name="edit" size={13}/> Edit</button>,
@@ -254,16 +274,16 @@ function Patients({ token, user }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1a1a2e" }}>Patient Registration</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>Patient Registration</h2>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
           <div style={{ position:"relative" }}>
-            <span style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", color:"#aaa" }}><Icon name="search" size={15}/></span>
+            <span style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", color:"#90A4AE" }}><Icon name="search" size={15}/></span>
             <input style={{ ...inp, paddingLeft:34, width:220 }} placeholder="Search..." value={search} onChange={e=>setSearch(e.target.value)}/>
           </div>
           {canEdit && <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> Add Patient</button>}
         </div>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
         <Table columns={[{key:"name",label:"Full Name"},{key:"age",label:"Age"},{key:"gender",label:"Gender"},{key:"phone",label:"Phone"},{key:"bloodGroup",label:"Blood Group"},{key:"address",label:"Address"},{key:"createdAt",label:"Registered",render:v=>new Date(v).toLocaleDateString()}]} data={filtered}
           actions={canEdit?row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> Edit</button>,
@@ -300,10 +320,10 @@ function Doctors({ token }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1a1a2e" }}>Doctor Management</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>Doctor Management</h2>
         <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> Add Doctor</button>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
         <Table columns={[{key:"name",label:"Name"},{key:"specialization",label:"Specialization"},{key:"qualification",label:"Qualification"},{key:"department",label:"Department"},{key:"phone",label:"Phone"},{key:"status",label:"Status",render:v=><Badge status={v||"active"}/>}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> Edit</button>,
@@ -338,10 +358,10 @@ function Staff({ token }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1a1a2e" }}>Staff Management</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>Staff Management</h2>
         <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> Add Staff</button>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
         <Table columns={[{key:"name",label:"Name"},{key:"role",label:"Role"},{key:"department",label:"Department"},{key:"phone",label:"Phone"},{key:"salary",label:"Salary",render:v=>v?`UGX ${parseInt(v).toLocaleString()}`:"—"},{key:"status",label:"Status",render:v=><Badge status={v||"active"}/>}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> Edit</button>,
@@ -378,10 +398,10 @@ function Appointments({ token, user }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1a1a2e" }}>Appointments</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>Appointments</h2>
         {canEdit&&<button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> Schedule</button>}
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
         <Table columns={[{key:"patientId",label:"Patient",render:v=>pName(v)},{key:"doctorId",label:"Doctor",render:v=>"Dr. "+dName(v)},{key:"date",label:"Date"},{key:"time",label:"Time"},{key:"reason",label:"Reason"},{key:"status",label:"Status",render:v=><Badge status={v}/>}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> Edit</button>,
@@ -418,10 +438,10 @@ function MedicalRecords({ token, user }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1a1a2e" }}>Medical Records</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>Medical Records</h2>
         {canEdit&&<button style={btnP} onClick={()=>{setForm({medicinesUsed:[]});setModal("add");}}><Icon name="plus" size={16}/> Add Record</button>}
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
         <Table columns={[{key:"patientId",label:"Patient",render:v=>pName(v)},{key:"doctorId",label:"Doctor",render:v=>"Dr. "+dName(v)},{key:"diagnosis",label:"Diagnosis"},{key:"treatment",label:"Treatment"},{key:"medicinesUsed",label:"Medicines Used",render:v=>v&&v.length?v.map(id=>inventory.find(i=>i.id===id)?.name||id).join(", "):"—"},{key:"createdAt",label:"Date",render:v=>new Date(v).toLocaleDateString()}]} data={data}
           actions={canEdit?row=>[<button key="e" style={btnE} onClick={()=>{setForm({...row,medicinesUsed:row.medicinesUsed||[]});setModal("add");}}><Icon name="edit" size={13}/> Edit</button>]:null}
         />
@@ -434,14 +454,14 @@ function MedicalRecords({ token, user }) {
           <Field label="Treatment"><textarea style={{ ...inp, height:70, resize:"vertical" }} value={form.treatment||""} onChange={e=>setForm(f=>({...f,treatment:e.target.value}))}/></Field>
           <Field label="Prescription"><textarea style={{ ...inp, height:60, resize:"vertical" }} value={form.prescription||""} onChange={e=>setForm(f=>({...f,prescription:e.target.value}))}/></Field>
           <div style={{ marginBottom:16 }}>
-            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#666", marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>Medicines Used (tick from inventory)</label>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#546E7A", marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>Medicines Used (tick from inventory)</label>
             {inventory.filter(i=>!i.category||i.category==="Medicine").length===0
-              ? <p style={{ color:"#aaa", fontSize:13 }}>No medicines in inventory.</p>
-              : <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, maxHeight:160, overflowY:"auto", border:"1.5px solid #e8e8e8", borderRadius:8, padding:10 }}>
+              ? <p style={{ color:"#90A4AE", fontSize:13 }}>No medicines in inventory.</p>
+              : <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, maxHeight:160, overflowY:"auto", border:"1.5px solid #C8E6C9", borderRadius:8, padding:10 }}>
                   {inventory.filter(i=>!i.category||i.category==="Medicine").map(med=>(
                     <label key={med.id} style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, cursor:"pointer" }}>
                       <input type="checkbox" checked={(form.medicinesUsed||[]).includes(med.id)} onChange={()=>toggleMed(med.id)}/>
-                      {med.name} <span style={{ color:"#aaa", fontSize:11 }}>({med.quantity} {med.unit})</span>
+                      {med.name} <span style={{ color:"#90A4AE", fontSize:11 }}>({med.quantity} {med.unit})</span>
                     </label>
                   ))}
                 </div>
@@ -464,11 +484,11 @@ function Pharmacy({ token, user }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1a1a2e" }}>Pharmacy & Inventory</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>Pharmacy & Inventory</h2>
         {canEdit&&<button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> Add Item</button>}
       </div>
-      {user.role==="doctor"&&<div style={{ background:"#f0f8ff", border:"1px solid #bee3f8", borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:"#2b6cb0" }}>👁️ View-only — reference available medicines when writing prescriptions.</div>}
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
+      {user.role==="doctor"&&<div style={{ background:"#E3F2FD", border:"1px solid #BBDEFB", borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:"#1976D2" }}>👁️ View-only — reference available medicines when writing prescriptions.</div>}
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
         <Table columns={[{key:"name",label:"Item"},{key:"category",label:"Category"},{key:"quantity",label:"Stock",render:(v,row)=><span style={{ color:parseInt(v)<10?"#e53e3e":"#333", fontWeight:parseInt(v)<10?700:400 }}>{v} {row.unit}</span>},{key:"unitPrice",label:"Unit Price",render:v=>`UGX ${parseInt(v||0).toLocaleString()}`},{key:"expiryDate",label:"Expiry"},{key:"supplier",label:"Supplier"}]} data={data}
           actions={canEdit?row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> Edit</button>,
@@ -507,10 +527,10 @@ function Billing({ token }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1a1a2e" }}>Billing</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>Billing</h2>
         <button style={btnP} onClick={()=>{setForm({items:[]});setModal("add");}}><Icon name="plus" size={16}/> Create Bill</button>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
         <Table columns={[{key:"billNumber",label:"Bill #"},{key:"patientId",label:"Patient",render:v=>pName(v)},{key:"total",label:"Total",render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"status",label:"Status",render:v=><Badge status={v}/>},{key:"createdAt",label:"Date",render:v=>new Date(v).toLocaleDateString()}]} data={bills}
           actions={row=>[row.status==="pending"&&<button key="p" style={btnG} onClick={()=>markPaid(row)}><Icon name="check" size={13}/> Mark Paid</button>].filter(Boolean)}
         />
@@ -519,16 +539,16 @@ function Billing({ token }) {
         <Modal title="Create Bill" onClose={()=>setModal(null)}>
           <Field label="Patient"><select style={inp} value={form.patientId||""} onChange={e=>setForm(f=>({...f,patientId:e.target.value}))}><option value="">Select</option>{patients.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
           <div style={{ marginBottom:12 }}>
-            <label style={{ fontSize:12, fontWeight:600, color:"#666", textTransform:"uppercase", letterSpacing:0.5 }}>Bill Items</label>
+            <label style={{ fontSize:12, fontWeight:600, color:"#546E7A", textTransform:"uppercase", letterSpacing:0.5 }}>Bill Items</label>
             {(form.items||[]).map((item,i)=>(
               <div key={i} style={{ display:"flex", gap:8, marginTop:8 }}>
                 <input style={{ ...inp, flex:2 }} placeholder="Description" value={item.desc} onChange={e=>updItem(i,"desc",e.target.value)}/>
                 <input style={{ ...inp, flex:1 }} type="number" placeholder="UGX" value={item.amount} onChange={e=>updItem(i,"amount",e.target.value)}/>
               </div>
             ))}
-            <button onClick={addItem} style={{ marginTop:10, background:"#f5f5f5", border:"none", borderRadius:8, padding:"8px 14px", fontSize:13, cursor:"pointer" }}>+ Add Item</button>
+            <button onClick={addItem} style={{ marginTop:10, background:"#E8F5E9", border:"1px solid #C8E6C9", borderRadius:8, padding:"8px 14px", fontSize:13, cursor:"pointer" }}>+ Add Item</button>
           </div>
-          <div style={{ background:"#f8f9ff", borderRadius:8, padding:"12px 16px", marginBottom:16, fontWeight:700, fontSize:16 }}>Total: UGX {total.toLocaleString()}</div>
+          <div style={{ background:"#F1F8E9", borderRadius:8, padding:"12px 16px", marginBottom:16, fontWeight:700, fontSize:16 }}>Total: UGX {total.toLocaleString()}</div>
           <Field label="Notes"><textarea style={{ ...inp, height:60 }} value={form.notes||""} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></Field>
           <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> Generate Bill</button>
         </Modal>
@@ -537,7 +557,7 @@ function Billing({ token }) {
   );
 }
 
-function Transactions({ token, user }) {
+function Transactions({ token }) {
   const [data,setData]=useState([]); const [patients,setPatients]=useState([]); const [bills,setBills]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
   const load=useCallback(async()=>{ const [tx,p,b]=await Promise.all([api("/transactions","GET",null,token),api("/patients","GET",null,token),api("/bills","GET",null,token)]); setData(tx);setPatients(p);setBills(b); },[token]);
   useEffect(()=>{load();},[load]);
@@ -548,16 +568,16 @@ function Transactions({ token, user }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1a1a2e" }}>Transactions & Payments</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>Transactions & Payments</h2>
         <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> Record Payment</button>
       </div>
-      <div style={{ background:"linear-gradient(135deg,#1a1a2e,#0f3460)", borderRadius:16, padding:"20px 24px", marginBottom:20, color:"#fff" }}>
+      <div style={{ background:"linear-gradient(135deg,#2E7D32,#1976D2)", borderRadius:16, padding:"20px 24px", marginBottom:20, color:"#fff" }}>
         <div style={{ fontSize:13, opacity:0.7 }}>Total Revenue Collected</div>
         <div style={{ fontSize:32, fontWeight:800, marginTop:4 }}>UGX {total.toLocaleString()}</div>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)", overflow:"hidden" }}>
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
         <Table columns={[{key:"txRef",label:"Ref #"},{key:"patientId",label:"Patient",render:v=>pName(v)},{key:"amount",label:"Amount",render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"method",label:"Method"},{key:"recordedBy",label:"Recorded By"},{key:"note",label:"Note"},{key:"createdAt",label:"Date",render:v=>new Date(v).toLocaleDateString()}]} data={data}
-         actions={row=>[user.role==="admin"&&<button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>].filter(Boolean)}
+          actions={row=>[<button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>]}
         />
       </div>
       {modal==="add"&&(
@@ -604,19 +624,19 @@ export default function App() {
   const modules=ALL_MODULES.filter(m=>allowed.includes(m.key));
   const ActiveModule=modules.find(m=>m.key===active)||modules[0];
   const ActiveComponent=ActiveModule.Component;
-  const roleColors={ admin:"#7c3aed", doctor:"#0891b2", receptionist:"#d97706", pharmacist:"#059669" };
+  const roleColors={ admin:"#2E7D32", doctor:"#1976D2", receptionist:"#F9A825", pharmacist:"#43A047" };
   const roleColor=roleColors[user.role]||"#3b6fd4";
 
   return (
-    <div style={{ display:"flex", minHeight:"100vh", fontFamily:"'Segoe UI',system-ui,sans-serif", background:"#f4f6ff" }}>
-      <div style={{ width:sidebarOpen?240:68, background:"linear-gradient(180deg,#1a1a2e 0%,#16213e 100%)", color:"#fff", display:"flex", flexDirection:"column", transition:"width 0.2s", overflow:"hidden", flexShrink:0, position:"sticky", top:0, height:"100vh" }}>
+    <div style={{ display:"flex", minHeight:"100vh", fontFamily:"'Segoe UI',system-ui,sans-serif", background:"#E8F5E9" }}>
+      <div style={{ width:sidebarOpen?240:68, background:"linear-gradient(180deg,#1B5E20 0%,#2E7D32 100%)", color:"#fff", display:"flex", flexDirection:"column", transition:"width 0.2s", overflow:"hidden", flexShrink:0, position:"sticky", top:0, height:"100vh" }}>
         <div style={{ padding:"20px 16px", display:"flex", alignItems:"center", gap:10, borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
-          <div style={{ width:36, height:36, background:"linear-gradient(135deg,#4fc3f7,#0288d1)", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🏥</div>
-          {sidebarOpen&&<div><div style={{ fontWeight:800, fontSize:15 }}>MediCore HMS</div><div style={{ fontSize:11, opacity:0.6 }}>v2.0</div></div>}
+          <div style={{ width:36, height:36, background:"rgba(255,255,255,0.2)", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🏥</div>
+          {sidebarOpen&&<div><div style={{ fontWeight:800, fontSize:15 }}>Byarwanga Medical Centre</div><div style={{ fontSize:11, opacity:0.6 }}>v2.0</div></div>}
         </div>
         <nav style={{ flex:1, padding:"12px 8px", overflowY:"auto" }}>
           {modules.map(m=>(
-            <button key={m.key} onClick={()=>setActive(m.key)} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"11px 12px", borderRadius:10, border:"none", cursor:"pointer", marginBottom:4, background:active===m.key?"rgba(79,195,247,0.15)":"transparent", color:active===m.key?"#4fc3f7":"rgba(255,255,255,0.7)", fontWeight:active===m.key?700:400, fontSize:14, textAlign:"left" }}>
+            <button key={m.key} onClick={()=>setActive(m.key)} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"11px 12px", borderRadius:10, border:"none", cursor:"pointer", marginBottom:4, background:active===m.key?"rgba(255,255,255,0.2)":"transparent", color:active===m.key?"#ffffff":"rgba(255,255,255,0.7)", fontWeight:active===m.key?700:400, fontSize:14, textAlign:"left" }}>
               <span style={{ flexShrink:0 }}><Icon name={m.icon} size={18}/></span>
               {sidebarOpen&&<span style={{ whiteSpace:"nowrap" }}>{m.label}</span>}
             </button>
@@ -624,23 +644,23 @@ export default function App() {
         </nav>
         <div style={{ padding:"12px 8px", borderTop:"1px solid rgba(255,255,255,0.08)" }}>
           {sidebarOpen&&<div style={{ padding:"8px 12px", marginBottom:8 }}>
-            <div style={{ fontSize:12, opacity:0.5 }}>Signed in as</div>
+            <div style={{ fontSize:12, opacity:0.7 }}>Signed in as</div>
             <div style={{ fontSize:13, fontWeight:700 }}>{user.name}</div>
             <div style={{ marginTop:4 }}><Badge status={user.role}/></div>
           </div>}
-          <button onClick={handleLogout} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"10px 12px", borderRadius:10, border:"none", cursor:"pointer", background:"rgba(229,62,62,0.12)", color:"#fc8181", fontWeight:600, fontSize:13 }}>
+          <button onClick={handleLogout} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"10px 12px", borderRadius:10, border:"none", cursor:"pointer", background:"rgba(198,40,40,0.2)", color:"#FFCDD2", fontWeight:600, fontSize:13 }}>
             <Icon name="logout" size={16}/>{sidebarOpen&&"Sign Out"}
           </button>
         </div>
       </div>
       <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0 }}>
-        <div style={{ background:"#fff", borderBottom:"1px solid #eef0f8", padding:"0 24px", height:60, display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", position:"sticky", top:0, zIndex:100 }}>
+        <div style={{ background:"#fff", borderBottom:"1px solid #C8E6C9", padding:"0 24px", height:60, display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", position:"sticky", top:0, zIndex:100 }}>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <button onClick={()=>setSidebarOpen(s=>!s)} style={{ background:"#f4f6ff", border:"none", borderRadius:8, padding:8, cursor:"pointer", color:"#555" }}><Icon name="dashboard" size={16}/></button>
-            <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#1a1a2e" }}>{ActiveModule.label}</h2>
+            <button onClick={()=>setSidebarOpen(s=>!s)} style={{ background:"#E8F5E9", border:"none", borderRadius:8, padding:8, cursor:"pointer", color:"#2E7D32" }}><Icon name="dashboard" size={16}/></button>
+            <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#1B5E20" }}>{ActiveModule.label}</h2>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <span style={{ fontSize:13, color:"#888" }}>{new Date().toLocaleDateString("en-UG",{weekday:"short",year:"numeric",month:"short",day:"numeric"})}</span>
+            <span style={{ fontSize:13, color:"#546E7A" }}>{new Date().toLocaleDateString("en-UG",{weekday:"short",year:"numeric",month:"short",day:"numeric"})}</span>
             <div style={{ width:34, height:34, background:roleColor, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:700, fontSize:14 }}>{user.name?.charAt(0).toUpperCase()}</div>
           </div>
         </div>
