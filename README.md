@@ -1,16 +1,35 @@
-# React + Vite
+# Byarwanga Medical Centre — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite single-page app for the Hospital Management System.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build
+```
 
-## React Compiler
+## Internationalisation (i18n)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The UI ships in three languages and is driven by [`i18next`](https://www.i18next.com/) /
+`react-i18next`:
 
-## Expanding the ESLint configuration
+| Language | Code | Direction |
+|----------|------|-----------|
+| English  | `en` | LTR       |
+| French   | `fr` | LTR       |
+| Arabic   | `ar` | RTL       |
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+* On first load the system reads the user's device / browser language
+  (`navigator.language`). If it is French or Arabic the UI switches automatically;
+  anything else falls back to **English**.
+* Users can override the choice at any time with the language button in the top bar
+  (also available on the login screen). The choice is saved in `localStorage`
+  (`hms_lang`).
+* When Arabic is active, `<html dir="rtl">` is set automatically so the layout
+  mirrors.
+
+All translation strings live in [`src/i18n.js`](src/i18n.js). To add or edit a
+string, update the `en`, `fr` and `ar` blocks and reference it with
+`t("some.key")`.
