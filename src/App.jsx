@@ -39,7 +39,12 @@ async function api(path, method = "GET", body = null, token = null) {
 const formatDate = (v, lng) =>
   v ? new Date(v).toLocaleDateString(lng || "en", { year: "numeric", month: "short", day: "numeric" }) : "—";
 
+// Format a full timestamp (audit log) in the currently active language.
+const formatDateTime = (v, lng) =>
+  v ? new Date(v).toLocaleString(lng || "en", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+
 const MODULES_BY_ROLE = {
+  superadmin:   ["overview", "people", "audit", "dashboard", "patients", "doctors", "staff", "users", "appointments", "records", "pharmacy", "billing", "transactions"],
   admin:        ["dashboard", "patients", "doctors", "staff", "users", "appointments", "records", "pharmacy", "billing", "transactions"],
   doctor:       ["dashboard", "appointments", "records", "pharmacy"],
   receptionist: ["dashboard", "patients", "appointments", "records", "billing", "transactions"],
@@ -67,6 +72,10 @@ const Icon = ({ name, size = 18 }) => {
     search:       "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0",
     alert:        "M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z M12 9v4 M12 17h.01",
     globe:        "M12 2a10 10 0 100 20 10 10 0 000-20z M2 12h20 M12 2c2.6 2.7 4 6.3 4 10s-1.4 7.3-4 10c-2.6-2.7-4-6.3-4-10s1.4-7.3 4-10z",
+    shield:       "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+    activity:     "M22 12h-4l-3 9L9 3l-3 9H2",
+    key:          "M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4",
+    ban:          "M12 2a10 10 0 100 20 10 10 0 000-20z M4.93 4.93l14.14 14.14",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -176,7 +185,7 @@ function useLabels() {
 
 function Badge({ status }) {
   const { status: label } = useLabels();
-  const map = { scheduled:["#1976D2","#E3F2FD"], completed:["#2E7D32","#E8F5E9"], cancelled:["#e53e3e","#fff5f5"], pending:["#d97706","#fffbeb"], partial:["#d97706","#fffbeb"], paid:["#2E7D32","#E8F5E9"], active:["#2E7D32","#E8F5E9"], inactive:["#e53e3e","#fff5f5"], admin:["#7c3aed","#f5f3ff"], doctor:["#1976D2","#E3F2FD"], receptionist:["#d97706","#fffbeb"], pharmacist:["#2E7D32","#E8F5E9"] };
+  const map = { scheduled:["#1976D2","#E3F2FD"], completed:["#2E7D32","#E8F5E9"], cancelled:["#e53e3e","#fff5f5"], pending:["#d97706","#fffbeb"], partial:["#d97706","#fffbeb"], paid:["#2E7D32","#E8F5E9"], active:["#2E7D32","#E8F5E9"], inactive:["#e53e3e","#fff5f5"], superadmin:["#b91c1c","#fef2f2"], admin:["#7c3aed","#f5f3ff"], doctor:["#1976D2","#E3F2FD"], receptionist:["#d97706","#fffbeb"], pharmacist:["#2E7D32","#E8F5E9"] };
   const [color,bg] = map[status] || ["#888","#f5f5f5"];
   return <span style={{ background:bg, color, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{label(status)}</span>;
 }
@@ -303,49 +312,117 @@ function Dashboard({ token, user }) {
   );
 }
 
-function UserManagement({ token }) {
+// Shared "create / edit user" form — the same form is reached from User
+// Management and from a staff profile in the Super Admin area.
+function UserFormModal({ token, initial, allowSuperadmin = false, onClose, onSaved }) {
+  const { t } = useTranslation();
+  const [form, setForm] = useState(initial || {});
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const editing = Boolean(form.id);
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      if (editing) await api(`/users/${form.id}`, "PUT", form, token);
+      else await api("/users", "POST", form, token);
+      onSaved?.();
+    } catch (e) {
+      try { setErr(JSON.parse(e.message)?.error || t("common.error")); } catch { setErr(t("common.error")); }
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal title={editing ? t("users.editTitle") : t("users.createTitle")} onClose={onClose}>
+      {err && <div style={{ background:"#fff5f5", border:"1px solid #ffd0d0", borderRadius:8, padding:"10px 14px", color:"#e53e3e", fontSize:13, marginBottom:16 }}>{err}</div>}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+        <Field label={t("fields.fullName")}><input style={inp} value={form.name||""} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></Field>
+        <Field label={t("common.username")}><input style={inp} value={form.username||""} onChange={e=>setForm(f=>({...f,username:e.target.value}))}/></Field>
+        <Field label={t("fields.password")}><input style={inp} type="password" placeholder={editing?t("users.passwordKeepBlank"):t("users.passwordSet")} value={form.password||""} onChange={e=>setForm(f=>({...f,password:e.target.value}))}/></Field>
+        <Field label={t("fields.role")}>
+          <select style={inp} value={form.role||""} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+            <option value="">{t("common.select")}</option>
+            {allowSuperadmin && <option value="superadmin">{t("roles.superadmin")}</option>}
+            <option value="admin">{t("roles.admin")}</option>
+            <option value="doctor">{t("roles.doctor")}</option>
+            <option value="receptionist">{t("roles.receptionist")}</option>
+            <option value="pharmacist">{t("roles.pharmacist")}</option>
+          </select>
+        </Field>
+      </div>
+      <button style={{ ...btnP, marginTop:8, opacity:busy?0.7:1 }} disabled={busy} onClick={save}><Icon name="check" size={16}/> {editing?t("users.updateBtn"):t("users.createBtn")}</button>
+    </Modal>
+  );
+}
+
+// Reset a staff member's password — type a new one, or generate a temporary
+// password that is shown once.
+function ResetPasswordModal({ token, user, onClose, onDone }) {
+  const { t } = useTranslation();
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [generated, setGenerated] = useState(null);
+
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await api(`/users/${user.id}/password`, "PUT", pw ? { password: pw } : {}, token);
+      if (r.generated && r.password) setGenerated(r.password);
+      else { onDone?.(); }
+    } catch (e) {
+      try { setErr(JSON.parse(e.message)?.error || t("common.error")); } catch { setErr(t("common.error")); }
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal title={t("resetPassword.title", { name: user.name })} onClose={onClose}>
+      {err && <div style={{ background:"#fff5f5", border:"1px solid #ffd0d0", borderRadius:8, padding:"10px 14px", color:"#e53e3e", fontSize:13, marginBottom:16 }}>{err}</div>}
+      {generated ? (
+        <>
+          <p style={{ fontSize:14, color:"#546E7A", marginTop:0 }}>{t("resetPassword.generatedNotice")}</p>
+          <div style={{ background:"#F1F8E9", border:"1px solid #C8E6C9", borderRadius:8, padding:"14px 16px", fontSize:18, fontWeight:700, letterSpacing:1, textAlign:"center", fontFamily:"monospace" }}>{generated}</div>
+          <button style={{ ...btnP, marginTop:16, justifyContent:"center", width:"100%" }} onClick={onDone}><Icon name="check" size={16}/> {t("common.done")}</button>
+        </>
+      ) : (
+        <>
+          <Field label={t("resetPassword.newPassword")}>
+            <input style={inp} type="text" placeholder={t("resetPassword.leaveBlankGenerate")} value={pw} onChange={e=>setPw(e.target.value)}/>
+          </Field>
+          <button style={{ ...btnP, marginTop:8, opacity:busy?0.7:1 }} disabled={busy} onClick={submit}>
+            <Icon name="key" size={16}/> {pw ? t("resetPassword.submit") : t("resetPassword.generateSubmit")}
+          </button>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function UserManagement({ token, user }) {
   const { t, i18n } = useTranslation();
-  const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({}); const [err,setErr]=useState("");
+  const allowSuperadmin = user?.role === "superadmin";
+  const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [editing,setEditing]=useState(null);
   const load=useCallback(()=>api("/users","GET",null,token).then(setData).catch(()=>{}),[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ setErr(""); try{ if(form.id)await api(`/users/${form.id}`,"PUT",form,token); else await api("/users","POST",form,token); load();setModal(null);setForm({}); }catch(e){ try{ setErr(JSON.parse(e.message)?.error||t("common.error")); }catch{ setErr(t("common.error")); } } };
-  const del=async(id)=>{ if(confirm(t("users.deleteConfirm"))){ await api(`/users/${id}`,"DELETE",null,token); load(); } };
+  const del=async(id)=>{ if(confirm(t("users.deleteConfirm"))){ try{ await api(`/users/${id}`,"DELETE",null,token); }catch{ /* ignore */ } load(); } };
   const toggle=async(u)=>{ await api(`/users/${u.id}`,"PUT",{status:u.status==="active"?"inactive":"active"},token); load(); };
+  const done=()=>{ setModal(null); setEditing(null); load(); };
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
         <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("users.title")}</h2>
-        <button style={btnP} onClick={()=>{setForm({});setErr("");setModal("add");}}><Icon name="plus" size={16}/> {t("users.add")}</button>
+        <button style={btnP} onClick={()=>{setEditing({});setModal("form");}}><Icon name="plus" size={16}/> {t("users.add")}</button>
       </div>
       <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
         <Table columns={[{key:"name",label:t("fields.name")},{key:"username",label:t("common.username")},{key:"role",label:t("fields.role"),render:v=><Badge status={v}/>},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>},{key:"createdAt",label:t("fields.created"),render:v=>formatDate(v,i18n.language)}]} data={data}
           actions={row=>[
-            <button key="e" style={btnE} onClick={()=>{setForm({...row,password:""});setErr("");setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
+            <button key="e" style={btnE} onClick={()=>{setEditing({...row,password:""});setModal("form");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
             <button key="t" style={row.status==="active"?btnD:btnG} onClick={()=>toggle(row)}>{row.status==="active"?t("users.deactivate"):t("users.activate")}</button>,
             <button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>,
           ]}
         />
       </div>
-      {modal==="add" && (
-        <Modal title={form.id?t("users.editTitle"):t("users.createTitle")} onClose={()=>setModal(null)}>
-          {err && <div style={{ background:"#fff5f5", border:"1px solid #ffd0d0", borderRadius:8, padding:"10px 14px", color:"#e53e3e", fontSize:13, marginBottom:16 }}>{err}</div>}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-            <Field label={t("fields.fullName")}><input style={inp} value={form.name||""} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></Field>
-            <Field label={t("common.username")}><input style={inp} value={form.username||""} onChange={e=>setForm(f=>({...f,username:e.target.value}))}/></Field>
-            <Field label={t("fields.password")}><input style={inp} type="password" placeholder={form.id?t("users.passwordKeepBlank"):t("users.passwordSet")} value={form.password||""} onChange={e=>setForm(f=>({...f,password:e.target.value}))}/></Field>
-            <Field label={t("fields.role")}>
-              <select style={inp} value={form.role||""} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
-                <option value="">{t("common.select")}</option>
-                <option value="admin">{t("roles.admin")}</option>
-                <option value="doctor">{t("roles.doctor")}</option>
-                <option value="receptionist">{t("roles.receptionist")}</option>
-                <option value="pharmacist">{t("roles.pharmacist")}</option>
-              </select>
-            </Field>
-          </div>
-          <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> {form.id?t("users.updateBtn"):t("users.createBtn")}</button>
-        </Modal>
-      )}
+      {modal==="form" && <UserFormModal token={token} initial={editing} allowSuperadmin={allowSuperadmin} onClose={()=>{setModal(null);setEditing(null);}} onSaved={done}/>}
     </div>
   );
 }
@@ -695,7 +772,222 @@ function Transactions({ token }) {
   );
 }
 
+// ─── SUPER ADMIN AREA ────────────────────────────────────────────────────────
+
+function Overview({ token }) {
+  const { t, i18n } = useTranslation();
+  const [stats,setStats]=useState(null);
+  useEffect(()=>{ api("/stats","GET",null,token).then(setStats).catch(()=>{}); },[token]);
+  if(!stats) return <div style={{ padding:40, color:"#546E7A" }}>{t("common.loading")}</div>;
+  const byRole=stats.usersByRole||{};
+  return (
+    <div>
+      <h2 style={{ margin:"0 0 24px", fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("overview.title")}</h2>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:16, marginBottom:28 }}>
+        <StatCard label={t("dashboard.totalPatients")} value={stats.totalPatients} color="#1976D2" icon="patients" />
+        <StatCard label={t("dashboard.doctors")} value={stats.totalDoctors} color="#2E7D32" icon="doctors" />
+        <StatCard label={t("dashboard.staff")} value={stats.totalStaff} color="#6A1B9A" icon="staff" />
+        <StatCard label={t("dashboard.systemUsers")} value={stats.totalUsers} color="#43A047" icon="users" sub={t("overview.activeDisabled",{active:stats.activeUsers,disabled:stats.disabledUsers})} />
+        <StatCard label={t("overview.totalAppointments")} value={stats.totalAppointments} color="#F9A825" icon="appointments" />
+        <StatCard label={t("overview.totalRecords")} value={stats.totalRecords} color="#0D47A1" icon="records" />
+        <StatCard label={t("dashboard.pendingBills")} value={stats.pendingBills} color="#C62828" icon="billing" />
+        <StatCard label={t("dashboard.totalRevenue")} value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="#1976D2" icon="transactions" />
+        <StatCard label={t("dashboard.lowStock")} value={stats.lowStockItems} color="#C62828" icon="pharmacy" />
+        <StatCard label={t("overview.auditToday")} value={stats.auditToday} color="#6A1B9A" icon="activity" />
+        <StatCard label={t("overview.auditTotal")} value={stats.auditTotal} color="#546E7A" icon="activity" />
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))", gap:16 }}>
+        <div style={{ background:"#fff", borderRadius:16, padding:24, boxShadow:"0 2px 12px rgba(46,125,50,0.08)" }}>
+          <h3 style={{ margin:"0 0 16px", fontSize:16, fontWeight:700 }}>{t("overview.usersByRole")}</h3>
+          {Object.keys(byRole).length===0 ? <p style={{ color:"#90A4AE", fontSize:13 }}>{t("common.noRecords")}</p> :
+            Object.entries(byRole).map(([r,c])=>(
+              <div key={r} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid #ECEFF1" }}>
+                <Badge status={r}/><span style={{ fontWeight:800, fontSize:16 }}>{c}</span>
+              </div>
+            ))}
+        </div>
+        <div style={{ background:"#fff", borderRadius:16, padding:24, boxShadow:"0 2px 12px rgba(46,125,50,0.08)" }}>
+          <h3 style={{ margin:"0 0 16px", fontSize:16, fontWeight:700 }}>{t("overview.recentActivity")}</h3>
+          <Table columns={[
+            {key:"timestamp",label:t("audit.col.time"),render:v=>formatDateTime(v,i18n.language)},
+            {key:"actorName",label:t("audit.col.actor")},
+            {key:"action",label:t("audit.col.action"),render:v=><AuditActionTag action={v}/>},
+          ]} data={stats.recentAudit||[]} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuditActionTag({ action }) {
+  const { t } = useTranslation();
+  const map={ CREATE:["#2E7D32","#E8F5E9"], UPDATE:["#1976D2","#E3F2FD"], DELETE:["#C62828","#FFEBEE"], LOGIN:["#2E7D32","#E8F5E9"], LOGIN_FAILED:["#C62828","#FFEBEE"], PASSWORD_RESET:["#6A1B9A","#F3E5F5"], ACCOUNT_DISABLED:["#C62828","#FFEBEE"], ACCOUNT_ENABLED:["#2E7D32","#E8F5E9"] };
+  const [c,bg]=map[action]||["#546E7A","#ECEFF1"];
+  return <span style={{ background:bg, color:c, padding:"3px 10px", borderRadius:6, fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>{t(`audit.actions.${action}`,action)}</span>;
+}
+
+function AuditLogs({ token }) {
+  const { t, i18n } = useTranslation();
+  const EMPTY={ action:"all", actor:"all", entity:"all", from:"", to:"" };
+  const [logs,setLogs]=useState([]); const [meta,setMeta]=useState({actions:[],entities:[],actors:[]});
+  const [filters,setFilters]=useState(EMPTY); const [loading,setLoading]=useState(false);
+  useEffect(()=>{ api("/audit-logs/meta","GET",null,token).then(setMeta).catch(()=>{}); },[token]);
+  const load=useCallback(async()=>{
+    setLoading(true);
+    const qs=new URLSearchParams();
+    Object.entries(filters).forEach(([k,v])=>{ if(v && v!=="all") qs.append(k,v); });
+    try{ setLogs(await api(`/audit-logs?${qs.toString()}`,"GET",null,token)); }catch{ setLogs([]); }
+    setLoading(false);
+  },[token,filters]);
+  useEffect(()=>{ load(); },[load]);
+  const set=(k,v)=>setFilters(f=>({...f,[k]:v}));
+  const fSel={ ...inp, width:"auto", minWidth:150, padding:"8px 10px" };
+  const fLbl={ display:"flex", flexDirection:"column", gap:4, fontSize:11, fontWeight:600, color:"#546E7A", textTransform:"uppercase", letterSpacing:0.5 };
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("audit.title")}</h2>
+        <span style={{ fontSize:13, color:"#546E7A" }}>{loading?t("common.loading"):t("audit.count",{count:logs.length})}</span>
+      </div>
+      <div style={{ background:"#fff", borderRadius:16, padding:"18px 20px", boxShadow:"0 2px 12px rgba(46,125,50,0.08)", marginBottom:16, display:"flex", flexWrap:"wrap", gap:14, alignItems:"flex-end" }}>
+        <label style={fLbl}>{t("audit.filters.action")}
+          <select style={fSel} value={filters.action} onChange={e=>set("action",e.target.value)}>
+            <option value="all">{t("audit.filters.all")}</option>
+            {meta.actions.map(a=><option key={a} value={a}>{t(`audit.actions.${a}`,a)}</option>)}
+          </select>
+        </label>
+        <label style={fLbl}>{t("audit.filters.person")}
+          <select style={fSel} value={filters.actor} onChange={e=>set("actor",e.target.value)}>
+            <option value="all">{t("audit.filters.all")}</option>
+            {meta.actors.map(a=><option key={a.id||"guest"} value={a.id||""}>{a.name} — {t(`roles.${a.role}`,a.role||"guest")}</option>)}
+          </select>
+        </label>
+        <label style={fLbl}>{t("audit.filters.entity")}
+          <select style={fSel} value={filters.entity} onChange={e=>set("entity",e.target.value)}>
+            <option value="all">{t("audit.filters.all")}</option>
+            {meta.entities.map(e=><option key={e} value={e}>{e}</option>)}
+          </select>
+        </label>
+        <label style={fLbl}>{t("audit.filters.from")}
+          <input style={fSel} type="date" value={filters.from} onChange={e=>set("from",e.target.value)}/>
+        </label>
+        <label style={fLbl}>{t("audit.filters.to")}
+          <input style={fSel} type="date" value={filters.to} onChange={e=>set("to",e.target.value)}/>
+        </label>
+        <button style={btnG} onClick={()=>setFilters(EMPTY)}><Icon name="close" size={13}/> {t("audit.filters.reset")}</button>
+      </div>
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+        <Table columns={[
+          {key:"timestamp",label:t("audit.col.time"),render:v=>formatDateTime(v,i18n.language)},
+          {key:"actorName",label:t("audit.col.actor"),render:(v,r)=><span style={{ display:"inline-flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>{v||"—"} <Badge status={r.actorRole}/></span>},
+          {key:"action",label:t("audit.col.action"),render:v=><AuditActionTag action={v}/>},
+          {key:"entity",label:t("audit.col.target"),render:(v,r)=>r.entityId?`${v} · ${String(r.entityId).slice(0,8)}`:(v||"—")},
+          {key:"status",label:t("audit.col.result"),render:v=><span style={{ color:v>=400?"#C62828":"#2E7D32", fontWeight:700 }}>{v||"—"}</span>},
+          {key:"ip",label:t("audit.col.ip"),render:v=>v||"—"},
+        ]} data={logs} />
+      </div>
+    </div>
+  );
+}
+
+function StaffProfileModal({ token, member, onClose, onChanged }) {
+  const { t, i18n } = useTranslation();
+  const [sub,setSub]=useState(null);
+  const [err,setErr]=useState("");
+  const disabled=member.status==="inactive";
+  const toggle=async()=>{
+    if(!confirm(disabled?t("staffProfile.enableConfirm"):t("staffProfile.disableConfirm"))) return;
+    try{ await api(`/users/${member.id}`,"PUT",{status:disabled?"active":"inactive"},token); onChanged(); }
+    catch(e){ try{ setErr(JSON.parse(e.message)?.error||t("common.error")); }catch{ setErr(t("common.error")); } }
+  };
+  const del=async()=>{
+    if(!confirm(t("staffProfile.deleteConfirm",{name:member.name}))) return;
+    try{ await api(`/users/${member.id}`,"DELETE",null,token); onChanged(true); }
+    catch(e){ try{ setErr(JSON.parse(e.message)?.error||t("common.error")); }catch{ setErr(t("common.error")); } }
+  };
+  if(sub==="edit") return <UserFormModal token={token} initial={{...member,password:""}} onClose={()=>setSub(null)} onSaved={()=>{setSub(null);onChanged();}}/>;
+  if(sub==="reset") return <ResetPasswordModal token={token} user={member} onClose={()=>setSub(null)} onDone={()=>{setSub(null);onChanged();}}/>;
+  const row=(label,value)=>(
+    <div style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"9px 0", borderBottom:"1px solid #ECEFF1", fontSize:14 }}>
+      <span style={{ color:"#546E7A" }}>{label}</span><span style={{ fontWeight:600, textAlign:"end" }}>{value}</span>
+    </div>
+  );
+  return (
+    <Modal title={t("staffProfile.title",{name:member.name})} onClose={onClose}>
+      {err && <div style={{ background:"#fff5f5", border:"1px solid #ffd0d0", borderRadius:8, padding:"10px 14px", color:"#e53e3e", fontSize:13, marginBottom:16 }}>{err}</div>}
+      {row(t("common.username"),member.username)}
+      {row(t("fields.role"),<Badge status={member.role}/>)}
+      {row(t("fields.status"),<Badge status={member.status||"active"}/>)}
+      {row(t("fields.created"),formatDate(member.createdAt,i18n.language))}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:18 }}>
+        <button style={btnE} onClick={()=>setSub("edit")}><Icon name="edit" size={14}/> {t("staffProfile.edit")}</button>
+        <button style={btnG} onClick={()=>setSub("reset")}><Icon name="key" size={14}/> {t("staffProfile.resetPassword")}</button>
+        <button style={disabled?btnG:btnD} onClick={toggle}><Icon name="ban" size={14}/> {disabled?t("staffProfile.enable"):t("staffProfile.disable")}</button>
+        <button style={btnD} onClick={del}><Icon name="trash" size={14}/> {t("staffProfile.delete")}</button>
+      </div>
+    </Modal>
+  );
+}
+
+function People({ token }) {
+  const { t, i18n } = useTranslation();
+  const [tab,setTab]=useState("staff");
+  const [staff,setStaff]=useState([]); const [patients,setPatients]=useState([]);
+  const [selected,setSelected]=useState(null); const [search,setSearch]=useState("");
+  const load=useCallback(async()=>{
+    const [u,p]=await Promise.all([api("/users","GET",null,token).catch(()=>[]),api("/patients","GET",null,token).catch(()=>[])]);
+    setStaff(u); setPatients(p);
+  },[token]);
+  useEffect(()=>{ load(); },[load]);
+  const changed=()=>{ setSelected(null); load(); };
+  const q=search.toLowerCase();
+  const sFiltered=staff.filter(s=>[s.name,s.username,s.role].filter(Boolean).join(" ").toLowerCase().includes(q));
+  const pFiltered=patients.filter(p=>[p.name,p.phone].filter(Boolean).join(" ").toLowerCase().includes(q));
+  const tabBtn=(key,label,count)=>(
+    <button onClick={()=>setSearch("")||setTab(key)} style={{ background:tab===key?"#2E7D32":"#E8F5E9", color:tab===key?"#fff":"#2E7D32", border:"1px solid #C8E6C9", borderRadius:8, padding:"8px 16px", fontSize:13, fontWeight:600, cursor:"pointer" }}>{label} ({count})</button>
+  );
+  return (
+    <div>
+      <h2 style={{ margin:"0 0 20px", fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("people.title")}</h2>
+      <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
+        {tabBtn("staff",t("people.tabStaff"),staff.length)}
+        {tabBtn("patients",t("people.tabPatients"),patients.length)}
+        <div style={{ position:"relative", marginInlineStart:"auto" }}>
+          <span style={{ position:"absolute", insetInlineStart:10, top:"50%", transform:"translateY(-50%)", color:"#90A4AE" }}><Icon name="search" size={15}/></span>
+          <input style={{ ...inp, paddingInlineStart:34, width:220 }} placeholder={t("common.search")} value={search} onChange={e=>setSearch(e.target.value)}/>
+        </div>
+      </div>
+      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+        {tab==="staff" ? (
+          <Table columns={[
+            {key:"name",label:t("fields.name")},
+            {key:"username",label:t("common.username")},
+            {key:"role",label:t("fields.role"),render:v=><Badge status={v}/>},
+            {key:"status",label:t("fields.status"),render:v=><Badge status={v||"active"}/>},
+            {key:"createdAt",label:t("fields.created"),render:v=>formatDate(v,i18n.language)},
+          ]} data={sFiltered}
+            actions={row=>[<button key="p" style={btnE} onClick={()=>setSelected(row)}><Icon name="search" size={13}/> {t("people.openProfile")}</button>]}
+          />
+        ) : (
+          <Table columns={[
+            {key:"name",label:t("fields.fullName")},
+            {key:"gender",label:t("fields.gender"),render:v=>v?t(`gender.${String(v).toLowerCase()}`,v):"—"},
+            {key:"age",label:t("fields.age")},
+            {key:"phone",label:t("fields.phone")},
+            {key:"bloodGroup",label:t("fields.bloodGroup")},
+            {key:"createdAt",label:t("fields.registered"),render:v=>formatDate(v,i18n.language)},
+          ]} data={pFiltered} />
+        )}
+      </div>
+      {selected && <StaffProfileModal token={token} member={selected} onClose={()=>setSelected(null)} onChanged={changed}/>}
+    </div>
+  );
+}
+
 const ALL_MODULES = [
+  { key:"overview",     navKey:"overview",     icon:"shield",       Component:Overview },
+  { key:"people",       navKey:"people",       icon:"users",        Component:People },
+  { key:"audit",        navKey:"audit",        icon:"activity",     Component:AuditLogs },
   { key:"dashboard",    navKey:"dashboard",    icon:"dashboard",    Component:Dashboard },
   { key:"patients",     navKey:"patients",     icon:"patients",     Component:Patients },
   { key:"doctors",      navKey:"doctors",      icon:"doctors",      Component:Doctors },
@@ -725,7 +1017,7 @@ export default function App() {
   const ActiveModule=modules.find(m=>m.key===active)||modules[0];
   const ActiveComponent=ActiveModule.Component;
   const activeLabel=t(`nav.${ActiveModule.navKey}`);
-  const roleColors={ admin:"#2E7D32", doctor:"#1976D2", receptionist:"#F9A825", pharmacist:"#43A047" };
+  const roleColors={ superadmin:"#b91c1c", admin:"#2E7D32", doctor:"#1976D2", receptionist:"#F9A825", pharmacist:"#43A047" };
   const roleColor=roleColors[user.role]||"#3b6fd4";
 
   return (
