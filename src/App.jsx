@@ -2,7 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { LANGUAGES } from "./i18n";
 
-const API = 'https://medicore-backend-6q33.onrender.com/api';
+const API = import.meta.env.VITE_API_URL || 'https://medicore-backend-6q33.onrender.com/api';
+
+// Registered by <App/> so any 401 from an expired/invalid token drops the user
+// back to the login screen instead of leaving them on empty tables.
+let onAuthError = null;
 
 // ─── THEME ───────────────────────────────────────────────────────────────────
 const T = {
@@ -31,8 +35,21 @@ async function api(path, method = "GET", body = null, token = null) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   };
   const r = await fetch(`${API}${path}`, opts);
+  if (r.status === 401 && path !== "/login") { onAuthError?.(); throw new Error('{"error":"Session expired"}'); }
   if (!r.ok) throw new Error(await r.text());
   return r.json();
+}
+
+// Pull a human-readable message out of whatever api() threw.
+function apiErrorMessage(e, fallback = "Something went wrong") {
+  try { return JSON.parse(e.message)?.error || fallback; } catch { return fallback; }
+}
+
+// Run a mutation, surfacing any failure to the user instead of letting it become
+// an unhandled promise rejection. Returns true on success.
+async function withErr(fn) {
+  try { await fn(); return true; }
+  catch (e) { if (apiErrorMessage(e) !== "Session expired") alert(apiErrorMessage(e)); return false; }
 }
 
 // Format a date in the currently active language.
@@ -404,8 +421,8 @@ function UserManagement({ token, user }) {
   const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [editing,setEditing]=useState(null);
   const load=useCallback(()=>api("/users","GET",null,token).then(setData).catch(()=>{}),[token]);
   useEffect(()=>{load();},[load]);
-  const del=async(id)=>{ if(confirm(t("users.deleteConfirm"))){ try{ await api(`/users/${id}`,"DELETE",null,token); }catch{ /* ignore */ } load(); } };
-  const toggle=async(u)=>{ await api(`/users/${u.id}`,"PUT",{status:u.status==="active"?"inactive":"active"},token); load(); };
+  const del=async(id)=>{ if(confirm(t("users.deleteConfirm"))){ await withErr(()=>api(`/users/${id}`,"DELETE",null,token)); load(); } };
+  const toggle=async(u)=>{ if(await withErr(()=>api(`/users/${u.id}`,"PUT",{status:u.status==="active"?"inactive":"active"},token))) load(); };
   const done=()=>{ setModal(null); setEditing(null); load(); };
   return (
     <div>
@@ -431,10 +448,10 @@ function Patients({ token, user }) {
   const { t, i18n } = useTranslation();
   const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({}); const [search,setSearch]=useState("");
   const canEdit=["admin","receptionist"].includes(user.role);
-  const load=useCallback(()=>api("/patients","GET",null,token).then(setData),[token]);
+  const load=useCallback(()=>api("/patients","GET",null,token).then(setData).catch(()=>{}),[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(form.id)await api(`/patients/${form.id}`,"PUT",form,token); else await api("/patients","POST",form,token); load();setModal(null);setForm({}); };
-  const del=async(id)=>{ if(confirm(t("patients.deleteConfirm"))){ await api(`/patients/${id}`,"DELETE",null,token); load(); } };
+  const save=async()=>{ if(await withErr(()=>form.id?api(`/patients/${form.id}`,"PUT",form,token):api("/patients","POST",form,token))){ setModal(null);setForm({});load(); } };
+  const del=async(id)=>{ if(confirm(t("patients.deleteConfirm"))){ await withErr(()=>api(`/patients/${id}`,"DELETE",null,token)); load(); } };
   const filtered=data.filter(p=>p.name?.toLowerCase().includes(search.toLowerCase())||p.phone?.includes(search));
   return (
     <div>
@@ -479,10 +496,10 @@ function Patients({ token, user }) {
 function Doctors({ token }) {
   const { t } = useTranslation();
   const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
-  const load=useCallback(()=>api("/doctors","GET",null,token).then(setData),[token]);
+  const load=useCallback(()=>api("/doctors","GET",null,token).then(setData).catch(()=>{}),[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(form.id)await api(`/doctors/${form.id}`,"PUT",form,token); else await api("/doctors","POST",form,token); load();setModal(null);setForm({}); };
-  const del=async(id)=>{ if(confirm(t("doctors.deleteConfirm"))){ await api(`/doctors/${id}`,"DELETE",null,token); load(); } };
+  const save=async()=>{ if(await withErr(()=>form.id?api(`/doctors/${form.id}`,"PUT",form,token):api("/doctors","POST",form,token))){ setModal(null);setForm({});load(); } };
+  const del=async(id)=>{ if(confirm(t("doctors.deleteConfirm"))){ await withErr(()=>api(`/doctors/${id}`,"DELETE",null,token)); load(); } };
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
@@ -518,10 +535,10 @@ function Doctors({ token }) {
 function Staff({ token }) {
   const { t } = useTranslation();
   const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
-  const load=useCallback(()=>api("/staff","GET",null,token).then(setData),[token]);
+  const load=useCallback(()=>api("/staff","GET",null,token).then(setData).catch(()=>{}),[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(form.id)await api(`/staff/${form.id}`,"PUT",form,token); else await api("/staff","POST",form,token); load();setModal(null);setForm({}); };
-  const del=async(id)=>{ if(confirm(t("staff.deleteConfirm"))){ await api(`/staff/${id}`,"DELETE",null,token); load(); } };
+  const save=async()=>{ if(await withErr(()=>form.id?api(`/staff/${form.id}`,"PUT",form,token):api("/staff","POST",form,token))){ setModal(null);setForm({});load(); } };
+  const del=async(id)=>{ if(confirm(t("staff.deleteConfirm"))){ await withErr(()=>api(`/staff/${id}`,"DELETE",null,token)); load(); } };
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
@@ -557,10 +574,10 @@ function Appointments({ token, user }) {
   const { t } = useTranslation();
   const [data,setData]=useState([]); const [patients,setPatients]=useState([]); const [doctors,setDoctors]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
   const canEdit=["admin","receptionist"].includes(user.role);
-  const load=useCallback(async()=>{ const [a,p,d]=await Promise.all([api("/appointments","GET",null,token),api("/patients","GET",null,token),api("/doctors","GET",null,token)]); setData(a);setPatients(p);setDoctors(d); },[token]);
+  const load=useCallback(async()=>{ try{ const [a,p,d]=await Promise.all([api("/appointments","GET",null,token),api("/patients","GET",null,token),api("/doctors","GET",null,token)]); setData(a);setPatients(p);setDoctors(d); }catch{ /* surfaced elsewhere */ } },[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(form.id)await api(`/appointments/${form.id}`,"PUT",form,token); else await api("/appointments","POST",form,token); load();setModal(null);setForm({}); };
-  const del=async(id)=>{ if(confirm(t("appointments.deleteConfirm"))){ await api(`/appointments/${id}`,"DELETE",null,token); load(); } };
+  const save=async()=>{ if(await withErr(()=>form.id?api(`/appointments/${form.id}`,"PUT",form,token):api("/appointments","POST",form,token))){ setModal(null);setForm({});load(); } };
+  const del=async(id)=>{ if(confirm(t("appointments.deleteConfirm"))){ await withErr(()=>api(`/appointments/${id}`,"DELETE",null,token)); load(); } };
   const pName=id=>patients.find(p=>p.id===id)?.name||id;
   const dName=id=>doctors.find(d=>d.id===id)?.name||id;
   return (
@@ -598,9 +615,9 @@ function MedicalRecords({ token, user }) {
   const { t, i18n } = useTranslation();
   const [data,setData]=useState([]); const [patients,setPatients]=useState([]); const [doctors,setDoctors]=useState([]); const [inventory,setInventory]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({medicinesUsed:[]});
   const canEdit=["admin","doctor"].includes(user.role);
-  const load=useCallback(async()=>{ const [r,p,d,inv]=await Promise.all([api("/records","GET",null,token),api("/patients","GET",null,token),api("/doctors","GET",null,token),api("/inventory","GET",null,token).catch(()=>[])]); setData(r);setPatients(p);setDoctors(d);setInventory(inv); },[token]);
+  const load=useCallback(async()=>{ try{ const [r,p,d,inv]=await Promise.all([api("/records","GET",null,token),api("/patients","GET",null,token),api("/doctors","GET",null,token),api("/inventory","GET",null,token).catch(()=>[])]); setData(r);setPatients(p);setDoctors(d);setInventory(inv); }catch{ /* surfaced elsewhere */ } },[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(form.id)await api(`/records/${form.id}`,"PUT",form,token); else await api("/records","POST",form,token); load();setModal(null);setForm({medicinesUsed:[]}); };
+  const save=async()=>{ if(await withErr(()=>form.id?api(`/records/${form.id}`,"PUT",form,token):api("/records","POST",form,token))){ setModal(null);setForm({medicinesUsed:[]});load(); } };
   const pName=id=>patients.find(p=>p.id===id)?.name||id;
   const dName=id=>doctors.find(d=>d.id===id)?.name||id;
   const toggleMed=id=>{ const cur=form.medicinesUsed||[]; setForm(f=>({...f,medicinesUsed:cur.includes(id)?cur.filter(m=>m!==id):[...cur,id]})); };
@@ -647,10 +664,10 @@ function Pharmacy({ token, user }) {
   const { t } = useTranslation();
   const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
   const canEdit=["admin","pharmacist"].includes(user.role);
-  const load=useCallback(()=>api("/inventory","GET",null,token).then(setData),[token]);
+  const load=useCallback(()=>api("/inventory","GET",null,token).then(setData).catch(()=>{}),[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(form.id)await api(`/inventory/${form.id}`,"PUT",form,token); else await api("/inventory","POST",form,token); load();setModal(null);setForm({}); };
-  const del=async(id)=>{ if(confirm(t("pharmacy.removeConfirm"))){ await api(`/inventory/${id}`,"DELETE",null,token); load(); } };
+  const save=async()=>{ if(await withErr(()=>form.id?api(`/inventory/${form.id}`,"PUT",form,token):api("/inventory","POST",form,token))){ setModal(null);setForm({});load(); } };
+  const del=async(id)=>{ if(confirm(t("pharmacy.removeConfirm"))){ await withErr(()=>api(`/inventory/${id}`,"DELETE",null,token)); load(); } };
   const CATEGORIES=[["Medicine",t("pharmacy.categories.medicine")],["Equipment",t("pharmacy.categories.equipment")],["Supplies",t("pharmacy.categories.supplies")],["Lab Reagent",t("pharmacy.categories.labReagent")]];
   const catLabel=v=>CATEGORIES.find(c=>c[0]===v)?.[1]||v;
   return (
@@ -689,14 +706,21 @@ function Pharmacy({ token, user }) {
 function Billing({ token }) {
   const { t, i18n } = useTranslation();
   const [bills,setBills]=useState([]); const [patients,setPatients]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({items:[]});
-  const load=useCallback(async()=>{ const [b,p]=await Promise.all([api("/bills","GET",null,token),api("/patients","GET",null,token)]); setBills(b);setPatients(p); },[token]);
+  const load=useCallback(async()=>{ try{ const [b,p]=await Promise.all([api("/bills","GET",null,token),api("/patients","GET",null,token)]); setBills(b);setPatients(p); }catch{ /* surfaced elsewhere */ } },[token]);
   useEffect(()=>{load();},[load]);
   const addItem=()=>setForm(f=>({...f,items:[...(f.items||[]),{desc:"",amount:""}]}));
   const updItem=(i,k,v)=>setForm(f=>({...f,items:f.items.map((it,idx)=>idx===i?{...it,[k]:v}:it)}));
   const total=(form.items||[]).reduce((s,it)=>s+(parseFloat(it.amount)||0),0);
   const pName=id=>patients.find(p=>p.id===id)?.name||id;
-  const save=async()=>{ await api("/bills","POST",{...form,total},token); load();setModal(null);setForm({items:[]}); };
-  const markPaid=async(bill)=>{ await api("/transactions","POST",{billId:bill.id,amount:bill.total,patientId:bill.patientId,method:"Cash",note:t("billing.manualPayment")},token); load(); };
+  const save=async()=>{
+    try{ await api("/bills","POST",{...form,totalAmount:total},token); setModal(null);setForm({items:[]}); load(); }
+    catch(e){ alert(apiErrorMessage(e)); }
+  };
+  const markPaid=async(bill)=>{
+    const due=bill.remainingAmount ?? bill.totalAmount ?? 0;
+    try{ await api("/transactions","POST",{billId:bill.id,amount:due,patientId:bill.patientId,method:"Cash",note:t("billing.manualPayment")},token); load(); }
+    catch(e){ alert(apiErrorMessage(e)); }
+  };
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
@@ -704,8 +728,8 @@ function Billing({ token }) {
         <button style={btnP} onClick={()=>{setForm({items:[]});setModal("add");}}><Icon name="plus" size={16}/> {t("billing.create")}</button>
       </div>
       <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
-        <Table columns={[{key:"billNumber",label:t("fields.billNumber")},{key:"patientId",label:t("fields.patient"),render:v=>pName(v)},{key:"total",label:t("fields.total"),render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={bills}
-          actions={row=>[row.status==="pending"&&<button key="p" style={btnG} onClick={()=>markPaid(row)}><Icon name="check" size={13}/> {t("billing.markPaid")}</button>].filter(Boolean)}
+        <Table columns={[{key:"billNumber",label:t("fields.billNumber")},{key:"patientId",label:t("fields.patient"),render:v=>pName(v)},{key:"totalAmount",label:t("fields.total"),render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={bills}
+          actions={row=>[row.status!=="paid"&&<button key="p" style={btnG} onClick={()=>markPaid(row)}><Icon name="check" size={13}/> {t("billing.markPaid")}</button>].filter(Boolean)}
         />
       </div>
       {modal==="add"&&(
@@ -733,10 +757,10 @@ function Billing({ token }) {
 function Transactions({ token }) {
   const { t, i18n } = useTranslation();
   const [data,setData]=useState([]); const [patients,setPatients]=useState([]); const [bills,setBills]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
-  const load=useCallback(async()=>{ const [tx,p,b]=await Promise.all([api("/transactions","GET",null,token),api("/patients","GET",null,token),api("/bills","GET",null,token)]); setData(tx);setPatients(p);setBills(b); },[token]);
+  const load=useCallback(async()=>{ try{ const [tx,p,b]=await Promise.all([api("/transactions","GET",null,token),api("/patients","GET",null,token),api("/bills","GET",null,token)]); setData(tx);setPatients(p);setBills(b); }catch{ /* surfaced elsewhere */ } },[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ await api("/transactions","POST",form,token); load();setModal(null);setForm({}); };
-  const del=async(id)=>{ if(confirm(t("transactions.deleteConfirm"))){ await api(`/transactions/${id}`,"DELETE",null,token); load(); } };
+  const save=async()=>{ if(await withErr(()=>api("/transactions","POST",form,token))){ setModal(null);setForm({});load(); } };
+  const del=async(id)=>{ if(confirm(t("transactions.deleteConfirm"))){ await withErr(()=>api(`/transactions/${id}`,"DELETE",null,token)); load(); } };
   const pName=id=>patients.find(p=>p.id===id)?.name||id;
   const total=data.reduce((s,tx)=>s+(parseFloat(tx.amount)||0),0);
   const METHODS=[["Cash",t("transactions.methods.cash")],["Mobile Money",t("transactions.methods.mobileMoney")],["Bank Transfer",t("transactions.methods.bankTransfer")],["Insurance",t("transactions.methods.insurance")],["Card",t("transactions.methods.card")]];
@@ -759,7 +783,7 @@ function Transactions({ token }) {
       {modal==="add"&&(
         <Modal title={t("transactions.recordTitle")} onClose={()=>setModal(null)}>
           <Field label={t("fields.patient")}><select style={inp} value={form.patientId||""} onChange={e=>setForm(f=>({...f,patientId:e.target.value}))}><option value="">{t("common.select")}</option>{patients.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-          <Field label={t("transactions.linkToBill")}><select style={inp} value={form.billId||""} onChange={e=>setForm(f=>({...f,billId:e.target.value}))}><option value="">{t("common.none")}</option>{bills.filter(b=>b.status==="pending").map(b=><option key={b.id} value={b.id}>{b.billNumber} — UGX {parseFloat(b.total||0).toLocaleString()}</option>)}</select></Field>
+          <Field label={t("transactions.linkToBill")}><select style={inp} value={form.billId||""} onChange={e=>setForm(f=>({...f,billId:e.target.value}))}><option value="">{t("common.none")}</option>{bills.filter(b=>b.status!=="paid").map(b=><option key={b.id} value={b.id}>{b.billNumber} — UGX {parseFloat(b.remainingAmount ?? b.totalAmount ?? 0).toLocaleString()}</option>)}</select></Field>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
             <Field label={t("fields.amountUgx")}><input style={inp} type="number" value={form.amount||""} onChange={e=>setForm(f=>({...f,amount:e.target.value}))}/></Field>
             <Field label={t("fields.method")}><select style={inp} value={form.method||""} onChange={e=>setForm(f=>({...f,method:e.target.value}))}><option value="">{t("common.select")}</option>{METHODS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Field>
@@ -1008,7 +1032,9 @@ export default function App() {
   const [sidebarOpen,setSidebarOpen]=useState(true);
 
   const handleLogin=(tok,u)=>{ localStorage.setItem("hms_token",tok); localStorage.setItem("hms_user",JSON.stringify(u)); setToken(tok);setUser(u);setActive("dashboard"); };
-  const handleLogout=()=>{ localStorage.removeItem("hms_token"); localStorage.removeItem("hms_user"); setToken(null);setUser(null); };
+  const handleLogout=useCallback(()=>{ localStorage.removeItem("hms_token"); localStorage.removeItem("hms_user"); setToken(null);setUser(null); },[]);
+
+  useEffect(()=>{ onAuthError = handleLogout; return ()=>{ onAuthError = null; }; },[handleLogout]);
 
   if(!token||!user) return <LoginPage onLogin={handleLogin}/>;
 
