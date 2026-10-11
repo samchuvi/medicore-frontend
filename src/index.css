@@ -4,13 +4,21 @@
 }
 
 :root {
+  --brand: #2E7D32;
+  --brand-dark: #1B5E20;
+  --brand-accent: #43A047;
+  --brand-tint: #C8E6C9;
+  --brand-tint-light: #E8F5E9;
+  --brand-tint-faint: #F1F8E9;
   font-family: 'Segoe UI', system-ui, Roboto, sans-serif;
   line-height: 1.5;
-  color: #263238;
-  background: #E8F5E9;
+  color: var(--text, #263238);
+  background: var(--page-bg, var(--brand-tint-light));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+[data-theme="dark"] { color-scheme: dark; }
 
 html,
 body {

@@ -1,64 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { LANGUAGES } from "./i18n";
-
-const API = import.meta.env.VITE_API_URL || 'https://medicore-backend-6q33.onrender.com/api';
-
-// Registered by <App/> so any 401 from an expired/invalid token drops the user
-// back to the login screen instead of leaving them on empty tables.
-let onAuthError = null;
-
-// ─── THEME ───────────────────────────────────────────────────────────────────
-const T = {
-  green:      "#2E7D32",
-  greenDark:  "#1B5E20",
-  greenLight: "#E8F5E9",
-  greenMid:   "#43A047",
-  blue:       "#1976D2",
-  blueDark:   "#0D47A1",
-  blueLight:  "#E3F2FD",
-  white:      "#FFFFFF",
-  bg:         "#E8F5E9",
-  text:       "#263238",
-  textLight:  "#546E7A",
-  border:     "#C8E6C9",
-  amber:      "#F9A825",
-  red:        "#C62828",
-  redLight:   "#FFEBEE",
-  shadow:     "0 2px 12px rgba(46,125,50,0.08)",
-};
-
-async function api(path, method = "GET", body = null, token = null) {
-  const opts = {
-    method,
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  };
-  const r = await fetch(`${API}${path}`, opts);
-  if (r.status === 401 && path !== "/login") { onAuthError?.(); throw new Error('{"error":"Session expired"}'); }
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-
-// Pull a human-readable message out of whatever api() threw.
-function apiErrorMessage(e, fallback = "Something went wrong") {
-  try { return JSON.parse(e.message)?.error || fallback; } catch { return fallback; }
-}
-
-// Run a mutation, surfacing any failure to the user instead of letting it become
-// an unhandled promise rejection. Returns true on success.
-async function withErr(fn) {
-  try { await fn(); return true; }
-  catch (e) { if (apiErrorMessage(e) !== "Session expired") alert(apiErrorMessage(e)); return false; }
-}
-
-// Format a date in the currently active language.
-const formatDate = (v, lng) =>
-  v ? new Date(v).toLocaleDateString(lng || "en", { year: "numeric", month: "short", day: "numeric" }) : "—";
-
-// Format a full timestamp (audit log) in the currently active language.
-const formatDateTime = (v, lng) =>
-  v ? new Date(v).toLocaleString(lng || "en", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+import { REMEMBER_HOSPITAL_CODE } from "./config";
+import { usePlatform } from "./platform";
+import { applyBrand, effectiveColor } from "./theme";
+import { MODULES } from "./modules";
+import {
+  api, apiErrorMessage, withErr, formatDate, formatDateTime, setAuthErrorHandler,
+  Icon, LanguageSwitcher, ThemeToggle, Modal, Field, inp, btnP, btnD, btnE, btnG,
+  Badge, StatCard, Table,
+} from "./shared";
 
 const MODULES_BY_ROLE = {
   superadmin:   ["overview", "people", "audit", "dashboard", "patients", "doctors", "staff", "users", "appointments", "records", "pharmacy", "billing", "transactions"],
@@ -66,208 +16,88 @@ const MODULES_BY_ROLE = {
   doctor:       ["dashboard", "appointments", "records", "pharmacy"],
   receptionist: ["dashboard", "patients", "appointments", "records", "billing", "transactions"],
   pharmacist:   ["dashboard", "pharmacy"],
+  labstaff:     ["dashboard"],
 };
 
-const Icon = ({ name, size = 18 }) => {
-  const icons = {
-    dashboard:    "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z M9 22V12h6v10",
-    patients:     "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2 M9 11a4 4 0 100-8 4 4 0 000 8 M23 21v-2a4 4 0 00-3-3.87 M16 3.13a4 4 0 010 7.75",
-    doctors:      "M22 12h-4l-3 9L9 3l-3 9H2",
-    appointments: "M8 2v4 M16 2v4 M3 10h18 M3 6a2 2 0 012-2h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6z",
-    records:      "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
-    pharmacy:     "M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18",
-    billing:      "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2 M9 5a2 2 0 002 2h2a2 2 0 002-2 M9 5a2 2 0 012-2h2a2 2 0 012 2",
-    transactions: "M12 1v22 M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6",
-    staff:        "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2 M9 11a4 4 0 100-8 4 4 0 000 8 M23 21v-2a4 4 0 00-3-3.87 M16 3.13a4 4 0 010 7.75",
-    users:        "M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2 M12 11a4 4 0 100-8 4 4 0 000 8",
-    logout:       "M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4 M16 17l5-5-5-5 M21 12H9",
-    plus:         "M12 5v14 M5 12h14",
-    edit:         "M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7 M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z",
-    trash:        "M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2",
-    close:        "M18 6L6 18 M6 6l12 12",
-    check:        "M20 6L9 17l-5-5",
-    search:       "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0",
-    alert:        "M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z M12 9v4 M12 17h.01",
-    globe:        "M12 2a10 10 0 100 20 10 10 0 000-20z M2 12h20 M12 2c2.6 2.7 4 6.3 4 10s-1.4 7.3-4 10c-2.6-2.7-4-6.3-4-10s1.4-7.3 4-10z",
-    shield:       "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
-    activity:     "M22 12h-4l-3 9L9 3l-3 9H2",
-    key:          "M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4",
-    ban:          "M12 2a10 10 0 100 20 10 10 0 000-20z M4.93 4.93l14.14 14.14",
-  };
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      {icons[name]?.split(" M").map((d, i) => <path key={i} d={i === 0 ? d : "M" + d} />)}
-    </svg>
-  );
+// Older built-in screens that depend on a hospital feature flag.
+const LEGACY_FEATURE = { pharmacy: "pharmacy", billing: "billing", transactions: "billing" };
+
+// Darken a #rrggbb colour (used to build the sidebar gradient from a hospital's theme colour).
+const shade = (hex, amt) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || ""); if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const c = v => Math.max(0, Math.min(255, Math.round(v * (1 - amt))));
+  return "#" + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(c).map(v => v.toString(16).padStart(2, "0")).join("");
 };
 
-// ─── LANGUAGE SWITCHER ───────────────────────────────────────────────────────
-function LanguageSwitcher({ variant = "light" }) {
-  const { t, i18n } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const base = (i18n.language || "en").split("-")[0];
-  const current = LANGUAGES.find(l => l.code === base) || LANGUAGES[0];
-  const dark = variant === "dark";
-
-  const change = (code) => { i18n.changeLanguage(code); setOpen(false); };
-
-  return (
-    <div style={{ position: "relative" }}>
-      <button
-        type="button"
-        aria-label={t("language.select")}
-        onClick={() => setOpen(o => !o)}
-        style={{
-          display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontFamily: "inherit",
-          borderRadius: 8, padding: "7px 12px", fontSize: 13, fontWeight: 600,
-          background: dark ? "rgba(255,255,255,0.15)" : "#E8F5E9",
-          color: dark ? "#FFFFFF" : "#2E7D32",
-          border: `1px solid ${dark ? "rgba(255,255,255,0.3)" : "#C8E6C9"}`,
-        }}
-      >
-        <Icon name="globe" size={15} />
-        <span>{current.nativeLabel}</span>
-        <span style={{ fontSize: 9 }}>▼</span>
-      </button>
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 2000 }} />
-          <div style={{
-            position: "absolute", top: "calc(100% + 6px)", insetInlineEnd: 0, zIndex: 2001,
-            background: "#fff", border: "1px solid #C8E6C9", borderRadius: 10,
-            boxShadow: "0 12px 40px rgba(0,0,0,0.16)", minWidth: 170, overflow: "hidden",
-          }}>
-            {LANGUAGES.map(l => (
-              <button
-                key={l.code}
-                type="button"
-                onClick={() => change(l.code)}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, width: "100%",
-                  padding: "10px 14px", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "start",
-                  fontSize: 13, fontWeight: l.code === current.code ? 700 : 500, color: "#263238",
-                  background: l.code === current.code ? "#E8F5E9" : "#fff",
-                }}
-              >
-                <span>{l.nativeLabel}</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 8, color: "#90A4AE", fontSize: 11 }}>
-                  {t(`language.${l.code}`, l.label)}
-                  {l.code === current.code && <Icon name="check" size={13} />}
-                </span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function Modal({ title, onClose, children }) {
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
-      <div style={{ background:"#fff", borderRadius:16, width:"100%", maxWidth:560, maxHeight:"90vh", overflow:"auto", boxShadow:"0 24px 80px rgba(0,0,0,0.2)" }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"20px 24px", borderBottom:"1px solid #C8E6C9" }}>
-          <h3 style={{ margin:0, fontSize:18, fontWeight:700, color:"#1B5E20" }}>{title}</h3>
-          <button onClick={onClose} style={{ background:"#E8F5E9", border:"1px solid #C8E6C9", borderRadius:8, padding:8, cursor:"pointer" }}><Icon name="close" size={16} /></button>
-        </div>
-        <div style={{ padding:24 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, children }) {
-  return (
-    <div style={{ marginBottom:16 }}>
-      <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#546E7A", marginBottom:6, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</label>
-      {children}
-    </div>
-  );
-}
-
-const inp = { width:"100%", padding:"10px 12px", border:"1.5px solid #C8E6C9", borderRadius:8, fontSize:14, color:"#263238", outline:"none", boxSizing:"border-box", background:"#FFFFFF", fontFamily:"inherit" };
-const btnP = { background:"linear-gradient(135deg,#2E7D32,#1B5E20)", color:"#fff", border:"none", borderRadius:10, padding:"11px 24px", fontSize:14, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:8 };
-const btnD = { background:"#FFEBEE", color:"#C62828", border:"1px solid #FFCDD2", borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 };
-const btnE = { background:"#E3F2FD", color:"#1976D2", border:"1px solid #BBDEFB", borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 };
-const btnG = { background:"#E8F5E9", color:"#2E7D32", border:"1px solid #C8E6C9", borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 };
-
-// Translate a status / role value coming from the backend.
-function useLabels() {
-  const { t } = useTranslation();
-  return {
-    status: (s) => t(`status.${s}`, { defaultValue: t(`roles.${s}`, { defaultValue: s ?? "" }) }),
-  };
-}
-
-function Badge({ status }) {
-  const { status: label } = useLabels();
-  const map = { scheduled:["#1976D2","#E3F2FD"], completed:["#2E7D32","#E8F5E9"], cancelled:["#e53e3e","#fff5f5"], pending:["#d97706","#fffbeb"], partial:["#d97706","#fffbeb"], paid:["#2E7D32","#E8F5E9"], active:["#2E7D32","#E8F5E9"], inactive:["#e53e3e","#fff5f5"], superadmin:["#b91c1c","#fef2f2"], admin:["#7c3aed","#f5f3ff"], doctor:["#1976D2","#E3F2FD"], receptionist:["#d97706","#fffbeb"], pharmacist:["#2E7D32","#E8F5E9"] };
-  const [color,bg] = map[status] || ["#888","#f5f5f5"];
-  return <span style={{ background:bg, color, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{label(status)}</span>;
-}
-
-function StatCard({ label, value, color, icon, sub }) {
-  return (
-    <div style={{ background:"#fff", borderRadius:16, padding:"22px 24px", boxShadow:"0 2px 12px rgba(46,125,50,0.08)", borderInlineStart:`4px solid ${color}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-      <div>
-        <div style={{ fontSize:13, color:"#546E7A", fontWeight:500, marginBottom:6 }}>{label}</div>
-        <div style={{ fontSize:28, fontWeight:800, color:"#263238" }}>{value}</div>
-        {sub && <div style={{ fontSize:12, color:"#90A4AE", marginTop:4 }}>{sub}</div>}
-      </div>
-      <div style={{ background:color+"18", borderRadius:12, padding:14, color }}><Icon name={icon} size={22} /></div>
-    </div>
-  );
-}
-
-function Table({ columns, data, actions }) {
-  const { t } = useTranslation();
-  return (
-    <div style={{ overflowX:"auto" }}>
-      <table style={{ width:"100%", borderCollapse:"collapse", fontSize:14 }}>
-        <thead>
-          <tr style={{ background:"#F1F8E9" }}>
-            {columns.map(c => <th key={c.key} style={{ padding:"12px 16px", textAlign:"start", fontWeight:600, color:"#546E7A", fontSize:12, textTransform:"uppercase", letterSpacing:0.5, borderBottom:"2px solid #C8E6C9" }}>{c.label}</th>)}
-            {actions && <th style={{ padding:"12px 16px", textAlign:"end", color:"#546E7A", fontSize:12, textTransform:"uppercase", borderBottom:"2px solid #C8E6C9" }}>{t("common.actions")}</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {data.length === 0
-            ? <tr><td colSpan={columns.length+(actions?1:0)} style={{ textAlign:"center", padding:40, color:"#90A4AE" }}>{t("common.noRecords")}</td></tr>
-            : data.map((row,i) => (
-              <tr key={row.id||i} style={{ borderBottom:"1px solid #C8E6C9" }}>
-                {columns.map(c => <td key={c.key} style={{ padding:"13px 16px", color:"#263238", verticalAlign:"middle" }}>{c.render ? c.render(row[c.key],row) : (row[c.key]??"—")}</td>)}
-                {actions && <td style={{ padding:"10px 16px", textAlign:"end" }}><div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>{actions(row)}</div></td>}
-              </tr>
-            ))
-          }
-        </tbody>
-      </table>
-    </div>
-  );
+function initialHospitalCode() {
+  try {
+    const fromLink = new URLSearchParams(window.location.search).get("hospital");
+    if (fromLink) return fromLink.trim().toLowerCase();
+    return REMEMBER_HOSPITAL_CODE ? (localStorage.getItem("hms_hospital_code") || "") : "";
+  } catch { return ""; }
 }
 
 function LoginPage({ onLogin }) {
   const { t } = useTranslation();
-  const [form, setForm] = useState({ username:"", password:"" });
+  const platform = usePlatform();
+  // The hospital code comes from the hospital's own link (?hospital=code) or, if
+  // REMEMBER_HOSPITAL_CODE is on in config.js, the last code used on this device.
+  // Otherwise it starts empty. A blank code is only accepted for the platform owner.
+  const [form, setForm] = useState({ hospitalSlug:initialHospitalCode(), username:"", password:"" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Show the hospital's own logo, name and colour as soon as its code is known
+  // (from its link or typed in). Unknown code / offline = the platform's look.
+  const [look, setLook] = useState(null);
+  useEffect(()=>{
+    const slug=form.hospitalSlug.trim().toLowerCase();
+    if(!slug){ setLook(null); return; }
+    let live=true;
+    const timer=setTimeout(()=>{
+      api(`/public/branding?hospital=${encodeURIComponent(slug)}`)
+        .then(b=>{ if(live) setLook(b); })
+        .catch(()=>{ if(live) setLook(null); });
+    },400);
+    return ()=>{ live=false; clearTimeout(timer); };
+  },[form.hospitalSlug]);
+  useEffect(()=>{ applyBrand(effectiveColor(look?.primaryColor)); },[look,platform.color]);
+  const logo=look?.logo||platform.logo;
+
   const handleSubmit = async () => {
     setLoading(true); setError("");
-    try { const data = await api("/login","POST",form); onLogin(data.token,data.user); }
-    catch { setError(t("login.error")); }
+    try {
+      const payload = { ...form, hospitalSlug: form.hospitalSlug.trim().toLowerCase() };
+      const data = await api("/login","POST",payload);
+      if (REMEMBER_HOSPITAL_CODE) { try { localStorage.setItem("hms_hospital_code", payload.hospitalSlug); } catch { /* storage unavailable — not critical */ } }
+      onLogin(data.token,data.user,data.hospital);
+    }
+    catch (e) {
+      // Say what actually went wrong: wrong details, too many tries, or no connection.
+      let msg = "";
+      try { msg = JSON.parse(e.message)?.error || ""; } catch { /* not JSON — the server was unreachable */ }
+      if (!msg) setError(t("login.unreachable"));
+      else if (/too many/i.test(msg)) setError(t("login.tooMany"));
+      else setError(t("login.error"));
+    }
     finally { setLoading(false); }
   };
   return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#1B5E20 0%,#2E7D32 50%,#1976D2 100%)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
-      <div style={{ position:"absolute", top:20, insetInlineEnd:20 }}><LanguageSwitcher variant="dark" /></div>
-      <div style={{ background:"#fff", borderRadius:24, padding:40, width:"100%", maxWidth:400, boxShadow:"0 32px 100px rgba(0,0,0,0.3)" }}>
+    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,var(--brand-dark) 0%,var(--brand) 50%,var(--info) 100%)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
+      <div style={{ position:"absolute", top:20, insetInlineEnd:20, display:"flex", gap:8 }}><ThemeToggle variant="dark" /><LanguageSwitcher variant="dark" /></div>
+      <div style={{ background:"var(--surface)", borderRadius:24, padding:40, width:"100%", maxWidth:400, boxShadow:"0 32px 100px rgba(0,0,0,0.3)" }}>
         <div style={{ textAlign:"center", marginBottom:32 }}>
-          <div style={{ width:64, height:64, background:"linear-gradient(135deg,#2E7D32,#1976D2)", borderRadius:20, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px", fontSize:28 }}>🏥</div>
-          <h1 style={{ margin:0, fontSize:24, fontWeight:800, color:"#263238" }}>{t("app.name")}</h1>
-          <p style={{ margin:"6px 0 0", color:"#546E7A", fontSize:14 }}>{t("login.subtitle")}</p>
+          <div style={{ width:logo?88:64, height:logo?88:64, background:logo?"transparent":"linear-gradient(135deg,var(--brand),var(--info))", borderRadius:20, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px", fontSize:28, overflow:"hidden" }}>{logo?<img src={logo} alt="" style={{ width:"100%", height:"100%", objectFit:"contain" }}/>:"🏥"}</div>
+          <h1 style={{ margin:0, fontSize:24, fontWeight:800, color:"var(--text)" }}>{look?.name||platform.name}</h1>
+          {look?.name&&<div style={{ fontSize:11, color:"var(--text-faint)", marginTop:4 }}>{t("login.poweredBy",{name:platform.name})}</div>}
+          <p style={{ margin:"6px 0 0", color:"var(--text-muted)", fontSize:14 }}>{t("login.subtitle")}</p>
         </div>
-        {error && <div style={{ background:"#fff5f5", border:"1px solid #ffd0d0", borderRadius:8, padding:"10px 14px", color:"#e53e3e", fontSize:13, marginBottom:16 }}>{error}</div>}
+        {error && <div style={{ background:"var(--danger-bg)", border:"1px solid var(--danger-border)", borderRadius:8, padding:"10px 14px", color:"var(--danger)", fontSize:13, marginBottom:16 }}>{error}</div>}
+        <Field label={t("login.hospitalCode")}>
+          <input style={inp} value={form.hospitalSlug} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={e=>setForm(f=>({...f,hospitalSlug:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} />
+          <div style={{ fontSize:11, color:"var(--text-faint)", marginTop:4 }}>{t("login.hospitalCodeHint")}</div>
+        </Field>
         <Field label={t("common.username")}><input style={inp} value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} /></Field>
         <Field label={t("common.password")}><input style={inp} type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} /></Field>
         <button onClick={handleSubmit} disabled={loading} style={{ ...btnP, width:"100%", justifyContent:"center", marginTop:8, padding:"13px 24px", fontSize:15 }}>{loading?t("login.signingIn"):t("login.signIn")}</button>
@@ -280,47 +110,55 @@ function Dashboard({ token, user }) {
   const { t, i18n } = useTranslation();
   const [stats, setStats] = useState(null);
   useEffect(()=>{ api("/stats","GET",null,token).then(setStats).catch(()=>{}); },[token]);
-  if (!stats) return <div style={{ padding:40, color:"#546E7A" }}>{t("common.loading")}</div>;
+  if (!stats) return <div style={{ padding:40, color:"var(--text-muted)" }}>{t("common.loading")}</div>;
   const role = user.role;
   return (
     <div>
       <div style={{ marginBottom:24 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("dashboard.welcome",{name:user.name})}</h2>
-        <p style={{ margin:"4px 0 0", color:"#546E7A", fontSize:14 }}><Badge status={role} /></p>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("dashboard.welcome",{name:user.name})}</h2>
+        <p style={{ margin:"4px 0 0", color:"var(--text-muted)", fontSize:14 }}><Badge status={role} /></p>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:16, marginBottom:32 }}>
         {role==="admin" && <>
-          <StatCard label={t("dashboard.totalPatients")} value={stats.totalPatients} color="#1976D2" icon="patients" />
-          <StatCard label={t("dashboard.doctors")} value={stats.totalDoctors} color="#2E7D32" icon="doctors" />
-          <StatCard label={t("dashboard.staff")} value={stats.totalStaff} color="#6A1B9A" icon="staff" />
-          <StatCard label={t("dashboard.systemUsers")} value={stats.totalUsers} color="#43A047" icon="users" />
-          <StatCard label={t("dashboard.todayAppointments")} value={stats.todayAppointments} color="#F9A825" icon="appointments" />
-          <StatCard label={t("dashboard.pendingBills")} value={stats.pendingBills} color="#C62828" icon="billing" />
-          <StatCard label={t("dashboard.totalRevenue")} value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="#1976D2" icon="transactions" />
-          <StatCard label={t("dashboard.lowStock")} value={stats.lowStockItems} color="#C62828" icon="pharmacy" />
+          <StatCard label={t("dashboard.totalPatients")} value={stats.totalPatients} color="var(--info)" icon="patients" />
+          <StatCard label={t("dashboard.doctors")} value={stats.totalDoctors} color="var(--brand)" icon="doctors" />
+          <StatCard label={t("dashboard.staff")} value={stats.totalStaff} color="var(--purple)" icon="staff" />
+          <StatCard label={t("dashboard.systemUsers")} value={stats.totalUsers} color="var(--brand-accent)" icon="users" />
+          <StatCard label={t("dashboard.todayAppointments")} value={stats.todayAppointments} color="var(--warn)" icon="appointments" />
+          <StatCard label={t("dashboard.pendingBills")} value={stats.pendingBills} color="var(--danger)" icon="billing" />
+          <StatCard label={t("dashboard.totalRevenue")} value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="var(--info)" icon="transactions" />
+          <StatCard label={t("dashboard.lowStock")} value={stats.lowStockItems} color="var(--danger)" icon="pharmacy" />
         </>}
         {role==="doctor" && <>
-          <StatCard label={t("dashboard.totalPatients")} value={stats.totalPatients} color="#1976D2" icon="patients" />
-          <StatCard label={t("dashboard.myAppointments")} value={stats.myAppointments} color="#F9A825" icon="appointments" />
-          <StatCard label={t("dashboard.todayAppointments")} value={stats.todayAppointments} color="#2E7D32" icon="appointments" />
-          <StatCard label={t("dashboard.myRecords")} value={stats.myRecords} color="#6A1B9A" icon="records" />
-          <StatCard label={t("dashboard.lowStockMedicines")} value={stats.lowStockItems} color="#C62828" icon="pharmacy" />
+          <StatCard label={t("dashboard.totalPatients")} value={stats.totalPatients} color="var(--info)" icon="patients" />
+          <StatCard label={t("dashboard.myAppointments")} value={stats.myAppointments} color="var(--warn)" icon="appointments" />
+          <StatCard label={t("dashboard.todayAppointments")} value={stats.todayAppointments} color="var(--brand)" icon="appointments" />
+          <StatCard label={t("dashboard.myRecords")} value={stats.myRecords} color="var(--purple)" icon="records" />
+          <StatCard label={t("dashboard.lowStockMedicines")} value={stats.lowStockItems} color="var(--danger)" icon="pharmacy" />
         </>}
         {role==="receptionist" && <>
-          <StatCard label={t("dashboard.totalPatients")} value={stats.totalPatients} color="#1976D2" icon="patients" />
-          <StatCard label={t("dashboard.todayAppointments")} value={stats.todayAppointments} color="#F9A825" icon="appointments" />
-          <StatCard label={t("dashboard.pendingBills")} value={stats.pendingBills} color="#C62828" icon="billing" />
-          <StatCard label={t("dashboard.revenueCollected")} value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="#2E7D32" icon="transactions" />
+          <StatCard label={t("dashboard.totalPatients")} value={stats.totalPatients} color="var(--info)" icon="patients" />
+          <StatCard label={t("dashboard.todayAppointments")} value={stats.todayAppointments} color="var(--warn)" icon="appointments" />
+          <StatCard label={t("dashboard.pendingBills")} value={stats.pendingBills} color="var(--danger)" icon="billing" />
+          <StatCard label={t("dashboard.revenueCollected")} value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="var(--brand)" icon="transactions" />
         </>}
         {role==="pharmacist" && <>
-          <StatCard label={t("dashboard.totalItems")} value={stats.totalItems} color="#1976D2" icon="pharmacy" />
-          <StatCard label={t("dashboard.lowStock")} value={stats.lowStockItems} color="#C62828" icon="alert" sub={t("dashboard.qtyBelow")} />
-          <StatCard label={t("dashboard.expiringSoon")} value={stats.expiringSoon} color="#F9A825" icon="alert" sub={t("dashboard.within30Days")} />
-          <StatCard label={t("dashboard.outOfStock")} value={stats.outOfStock} color="#C62828" icon="alert" />
+          <StatCard label={t("dashboard.totalItems")} value={stats.totalItems} color="var(--info)" icon="pharmacy" />
+          <StatCard label={t("dashboard.lowStock")} value={stats.lowStockItems} color="var(--danger)" icon="alert" sub={t("dashboard.qtyBelow")} />
+          <StatCard label={t("dashboard.expiringSoon")} value={stats.expiringSoon} color="var(--warn)" icon="alert" sub={t("dashboard.within30Days")} />
+          <StatCard label={t("dashboard.outOfStock")} value={stats.outOfStock} color="var(--danger)" icon="alert" />
+          {stats.todaySalesCount!==undefined && <StatCard label={t("dashboard.todaySalesCount")} value={stats.todaySalesCount} color="var(--brand)" icon="pharmacy" />}
+          {stats.todaySalesRevenue!==undefined && <StatCard label={t("dashboard.todaySalesRevenue")} value={`UGX ${(stats.todaySalesRevenue||0).toLocaleString()}`} color="var(--info)" icon="transactions" />}
+        </>}
+        {role==="labstaff" && <>
+          <StatCard label={t("dashboard.pendingOrders")} value={stats.pendingOrders} color="var(--warn)" icon="lab" />
+          <StatCard label={t("dashboard.inProgressOrders")} value={stats.inProgressOrders} color="var(--info)" icon="lab" />
+          <StatCard label={t("dashboard.urgentOpenOrders")} value={stats.urgentOpenOrders} color="var(--danger)" icon="alert" />
+          <StatCard label={t("dashboard.completedToday")} value={stats.completedToday} color="var(--brand)" icon="check" />
         </>}
       </div>
       {stats.recentPatients && (
-        <div style={{ background:"#fff", borderRadius:16, padding:24, boxShadow:"0 2px 12px rgba(46,125,50,0.08)" }}>
+        <div style={{ background:"var(--surface)", borderRadius:16, padding:24, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)" }}>
           <h3 style={{ margin:"0 0 16px", fontSize:16, fontWeight:700 }}>{t("dashboard.recentPatients")}</h3>
           <Table columns={[{key:"name",label:t("fields.name")},{key:"age",label:t("fields.age")},{key:"gender",label:t("fields.gender"),render:v=>v?t(`gender.${String(v).toLowerCase()}`,v):"—"},{key:"phone",label:t("fields.phone")},{key:"createdAt",label:t("fields.registered"),render:v=>formatDate(v,i18n.language)}]} data={stats.recentPatients} />
         </div>
@@ -351,7 +189,7 @@ function UserFormModal({ token, initial, allowSuperadmin = false, onClose, onSav
 
   return (
     <Modal title={editing ? t("users.editTitle") : t("users.createTitle")} onClose={onClose}>
-      {err && <div style={{ background:"#fff5f5", border:"1px solid #ffd0d0", borderRadius:8, padding:"10px 14px", color:"#e53e3e", fontSize:13, marginBottom:16 }}>{err}</div>}
+      {err && <div style={{ background:"var(--danger-bg)", border:"1px solid var(--danger-border)", borderRadius:8, padding:"10px 14px", color:"var(--danger)", fontSize:13, marginBottom:16 }}>{err}</div>}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
         <Field label={t("fields.fullName")}><input style={inp} value={form.name||""} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></Field>
         <Field label={t("common.username")}><input style={inp} value={form.username||""} onChange={e=>setForm(f=>({...f,username:e.target.value}))}/></Field>
@@ -364,6 +202,7 @@ function UserFormModal({ token, initial, allowSuperadmin = false, onClose, onSav
             <option value="doctor">{t("roles.doctor")}</option>
             <option value="receptionist">{t("roles.receptionist")}</option>
             <option value="pharmacist">{t("roles.pharmacist")}</option>
+            <option value="labstaff">{t("roles.labstaff")}</option>
           </select>
         </Field>
       </div>
@@ -394,11 +233,11 @@ function ResetPasswordModal({ token, user, onClose, onDone }) {
 
   return (
     <Modal title={t("resetPassword.title", { name: user.name })} onClose={onClose}>
-      {err && <div style={{ background:"#fff5f5", border:"1px solid #ffd0d0", borderRadius:8, padding:"10px 14px", color:"#e53e3e", fontSize:13, marginBottom:16 }}>{err}</div>}
+      {err && <div style={{ background:"var(--danger-bg)", border:"1px solid var(--danger-border)", borderRadius:8, padding:"10px 14px", color:"var(--danger)", fontSize:13, marginBottom:16 }}>{err}</div>}
       {generated ? (
         <>
-          <p style={{ fontSize:14, color:"#546E7A", marginTop:0 }}>{t("resetPassword.generatedNotice")}</p>
-          <div style={{ background:"#F1F8E9", border:"1px solid #C8E6C9", borderRadius:8, padding:"14px 16px", fontSize:18, fontWeight:700, letterSpacing:1, textAlign:"center", fontFamily:"monospace" }}>{generated}</div>
+          <p style={{ fontSize:14, color:"var(--text-muted)", marginTop:0 }}>{t("resetPassword.generatedNotice")}</p>
+          <div style={{ background:"var(--brand-tint-faint)", border:"1px solid var(--brand-tint)", borderRadius:8, padding:"14px 16px", fontSize:18, fontWeight:700, letterSpacing:1, textAlign:"center", fontFamily:"monospace" }}>{generated}</div>
           <button style={{ ...btnP, marginTop:16, justifyContent:"center", width:"100%" }} onClick={onDone}><Icon name="check" size={16}/> {t("common.done")}</button>
         </>
       ) : (
@@ -427,10 +266,10 @@ function UserManagement({ token, user }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("users.title")}</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("users.title")}</h2>
         <button style={btnP} onClick={()=>{setEditing({});setModal("form");}}><Icon name="plus" size={16}/> {t("users.add")}</button>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         <Table columns={[{key:"name",label:t("fields.name")},{key:"username",label:t("common.username")},{key:"role",label:t("fields.role"),render:v=><Badge status={v}/>},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>},{key:"createdAt",label:t("fields.created"),render:v=>formatDate(v,i18n.language)}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setEditing({...row,password:""});setModal("form");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
@@ -456,16 +295,16 @@ function Patients({ token, user }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("patients.title")}</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("patients.title")}</h2>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
           <div style={{ position:"relative" }}>
-            <span style={{ position:"absolute", insetInlineStart:10, top:"50%", transform:"translateY(-50%)", color:"#90A4AE" }}><Icon name="search" size={15}/></span>
+            <span style={{ position:"absolute", insetInlineStart:10, top:"50%", transform:"translateY(-50%)", color:"var(--text-faint)" }}><Icon name="search" size={15}/></span>
             <input style={{ ...inp, paddingInlineStart:34, width:220 }} placeholder={t("common.search")} value={search} onChange={e=>setSearch(e.target.value)}/>
           </div>
           {canEdit && <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("patients.add")}</button>}
         </div>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         <Table columns={[{key:"name",label:t("fields.fullName")},{key:"age",label:t("fields.age")},{key:"gender",label:t("fields.gender"),render:v=>v?t(`gender.${String(v).toLowerCase()}`,v):"—"},{key:"phone",label:t("fields.phone")},{key:"bloodGroup",label:t("fields.bloodGroup")},{key:"address",label:t("fields.address")},{key:"createdAt",label:t("fields.registered"),render:v=>formatDate(v,i18n.language)}]} data={filtered}
           actions={canEdit?row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
@@ -503,10 +342,10 @@ function Doctors({ token }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("doctors.title")}</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("doctors.title")}</h2>
         <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("doctors.add")}</button>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         <Table columns={[{key:"name",label:t("fields.name")},{key:"specialization",label:t("fields.specialization")},{key:"qualification",label:t("fields.qualification")},{key:"department",label:t("fields.department")},{key:"phone",label:t("fields.phone")},{key:"status",label:t("fields.status"),render:v=><Badge status={v||"active"}/>}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
@@ -542,10 +381,10 @@ function Staff({ token }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("staff.title")}</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("staff.title")}</h2>
         <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("staff.add")}</button>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         <Table columns={[{key:"name",label:t("fields.name")},{key:"role",label:t("fields.role")},{key:"department",label:t("fields.department")},{key:"phone",label:t("fields.phone")},{key:"salary",label:t("fields.salary"),render:v=>v?`UGX ${parseInt(v).toLocaleString()}`:"—"},{key:"status",label:t("fields.status"),render:v=><Badge status={v||"active"}/>}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
@@ -583,10 +422,10 @@ function Appointments({ token, user }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("appointments.title")}</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("appointments.title")}</h2>
         {canEdit&&<button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("appointments.schedule")}</button>}
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         <Table columns={[{key:"patientId",label:t("fields.patient"),render:v=>pName(v)},{key:"doctorId",label:t("fields.doctor"),render:v=>"Dr. "+dName(v)},{key:"date",label:t("fields.date")},{key:"time",label:t("fields.time")},{key:"reason",label:t("fields.reason")},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
@@ -624,10 +463,10 @@ function MedicalRecords({ token, user }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("records.title")}</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("records.title")}</h2>
         {canEdit&&<button style={btnP} onClick={()=>{setForm({medicinesUsed:[]});setModal("add");}}><Icon name="plus" size={16}/> {t("records.add")}</button>}
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         <Table columns={[{key:"patientId",label:t("fields.patient"),render:v=>pName(v)},{key:"doctorId",label:t("fields.doctor"),render:v=>"Dr. "+dName(v)},{key:"diagnosis",label:t("fields.diagnosis")},{key:"treatment",label:t("fields.treatment")},{key:"medicinesUsed",label:t("fields.medicinesUsed"),render:v=>v&&v.length?v.map(id=>inventory.find(i=>i.id===id)?.name||id).join(", "):"—"},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={data}
           actions={canEdit?row=>[<button key="e" style={btnE} onClick={()=>{setForm({...row,medicinesUsed:row.medicinesUsed||[]});setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>]:null}
         />
@@ -640,14 +479,14 @@ function MedicalRecords({ token, user }) {
           <Field label={t("fields.treatment")}><textarea style={{ ...inp, height:70, resize:"vertical" }} value={form.treatment||""} onChange={e=>setForm(f=>({...f,treatment:e.target.value}))}/></Field>
           <Field label={t("fields.prescription")}><textarea style={{ ...inp, height:60, resize:"vertical" }} value={form.prescription||""} onChange={e=>setForm(f=>({...f,prescription:e.target.value}))}/></Field>
           <div style={{ marginBottom:16 }}>
-            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"#546E7A", marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>{t("records.medicinesUsedLabel")}</label>
+            <label style={{ display:"block", fontSize:12, fontWeight:600, color:"var(--text-muted)", marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>{t("records.medicinesUsedLabel")}</label>
             {inventory.filter(i=>!i.category||i.category==="Medicine").length===0
-              ? <p style={{ color:"#90A4AE", fontSize:13 }}>{t("records.noMedicines")}</p>
-              : <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, maxHeight:160, overflowY:"auto", border:"1.5px solid #C8E6C9", borderRadius:8, padding:10 }}>
+              ? <p style={{ color:"var(--text-faint)", fontSize:13 }}>{t("records.noMedicines")}</p>
+              : <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, maxHeight:160, overflowY:"auto", border:"1.5px solid var(--brand-tint)", borderRadius:8, padding:10 }}>
                   {inventory.filter(i=>!i.category||i.category==="Medicine").map(med=>(
                     <label key={med.id} style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, cursor:"pointer" }}>
                       <input type="checkbox" checked={(form.medicinesUsed||[]).includes(med.id)} onChange={()=>toggleMed(med.id)}/>
-                      {med.name} <span style={{ color:"#90A4AE", fontSize:11 }}>({med.quantity} {med.unit})</span>
+                      {med.name} <span style={{ color:"var(--text-faint)", fontSize:11 }}>({med.quantity} {med.unit})</span>
                     </label>
                   ))}
                 </div>
@@ -673,12 +512,12 @@ function Pharmacy({ token, user }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("pharmacy.title")}</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("pharmacy.title")}</h2>
         {canEdit&&<button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("pharmacy.add")}</button>}
       </div>
-      {user.role==="doctor"&&<div style={{ background:"#E3F2FD", border:"1px solid #BBDEFB", borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:"#1976D2" }}>{t("pharmacy.doctorViewNote")}</div>}
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
-        <Table columns={[{key:"name",label:t("fields.item")},{key:"category",label:t("fields.category"),render:v=>catLabel(v)},{key:"quantity",label:t("fields.stock"),render:(v,row)=><span style={{ color:parseInt(v)<10?"#e53e3e":"#333", fontWeight:parseInt(v)<10?700:400 }}>{v} {row.unit}</span>},{key:"unitPrice",label:t("fields.unitPrice"),render:v=>`UGX ${parseInt(v||0).toLocaleString()}`},{key:"expiryDate",label:t("fields.expiry")},{key:"supplier",label:t("fields.supplier")}]} data={data}
+      {user.role==="doctor"&&<div style={{ background:"var(--info-bg)", border:"1px solid var(--info-border)", borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:"var(--info)" }}>{t("pharmacy.doctorViewNote")}</div>}
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
+        <Table columns={[{key:"name",label:t("fields.item")},{key:"category",label:t("fields.category"),render:v=>catLabel(v)},{key:"quantity",label:t("fields.stock"),render:(v,row)=><span style={{ color:parseInt(v)<10?"var(--danger)":"#333", fontWeight:parseInt(v)<10?700:400 }}>{v} {row.unit}</span>},{key:"unitPrice",label:t("fields.unitPrice"),render:v=>`UGX ${parseInt(v||0).toLocaleString()}`},{key:"expiryDate",label:t("fields.expiry")},{key:"supplier",label:t("fields.supplier")}]} data={data}
           actions={canEdit?row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
             <button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>,
@@ -724,10 +563,10 @@ function Billing({ token }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("billing.title")}</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("billing.title")}</h2>
         <button style={btnP} onClick={()=>{setForm({items:[]});setModal("add");}}><Icon name="plus" size={16}/> {t("billing.create")}</button>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         <Table columns={[{key:"billNumber",label:t("fields.billNumber")},{key:"patientId",label:t("fields.patient"),render:v=>pName(v)},{key:"totalAmount",label:t("fields.total"),render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={bills}
           actions={row=>[row.status!=="paid"&&<button key="p" style={btnG} onClick={()=>markPaid(row)}><Icon name="check" size={13}/> {t("billing.markPaid")}</button>].filter(Boolean)}
         />
@@ -736,16 +575,16 @@ function Billing({ token }) {
         <Modal title={t("billing.createTitle")} onClose={()=>setModal(null)}>
           <Field label={t("fields.patient")}><select style={inp} value={form.patientId||""} onChange={e=>setForm(f=>({...f,patientId:e.target.value}))}><option value="">{t("common.select")}</option>{patients.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
           <div style={{ marginBottom:12 }}>
-            <label style={{ fontSize:12, fontWeight:600, color:"#546E7A", textTransform:"uppercase", letterSpacing:0.5 }}>{t("billing.billItems")}</label>
+            <label style={{ fontSize:12, fontWeight:600, color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:0.5 }}>{t("billing.billItems")}</label>
             {(form.items||[]).map((item,i)=>(
               <div key={i} style={{ display:"flex", gap:8, marginTop:8 }}>
                 <input style={{ ...inp, flex:2 }} placeholder={t("billing.description")} value={item.desc} onChange={e=>updItem(i,"desc",e.target.value)}/>
                 <input style={{ ...inp, flex:1 }} type="number" placeholder="UGX" value={item.amount} onChange={e=>updItem(i,"amount",e.target.value)}/>
               </div>
             ))}
-            <button onClick={addItem} style={{ marginTop:10, background:"#E8F5E9", border:"1px solid #C8E6C9", borderRadius:8, padding:"8px 14px", fontSize:13, cursor:"pointer" }}>+ {t("billing.addItem")}</button>
+            <button onClick={addItem} style={{ marginTop:10, background:"var(--brand-tint-light)", border:"1px solid var(--brand-tint)", borderRadius:8, padding:"8px 14px", fontSize:13, cursor:"pointer" }}>+ {t("billing.addItem")}</button>
           </div>
-          <div style={{ background:"#F1F8E9", borderRadius:8, padding:"12px 16px", marginBottom:16, fontWeight:700, fontSize:16 }}>{t("billing.totalLabel",{amount:total.toLocaleString()})}</div>
+          <div style={{ background:"var(--brand-tint-faint)", borderRadius:8, padding:"12px 16px", marginBottom:16, fontWeight:700, fontSize:16 }}>{t("billing.totalLabel",{amount:total.toLocaleString()})}</div>
           <Field label={t("fields.notes")}><textarea style={{ ...inp, height:60 }} value={form.notes||""} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></Field>
           <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> {t("billing.generateBtn")}</button>
         </Modal>
@@ -768,14 +607,14 @@ function Transactions({ token }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("transactions.title")}</h2>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("transactions.title")}</h2>
         <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("transactions.record")}</button>
       </div>
-      <div style={{ background:"linear-gradient(135deg,#2E7D32,#1976D2)", borderRadius:16, padding:"20px 24px", marginBottom:20, color:"#fff" }}>
+      <div style={{ background:"linear-gradient(135deg,var(--brand),var(--info))", borderRadius:16, padding:"20px 24px", marginBottom:20, color:"#fff" }}>
         <div style={{ fontSize:13, opacity:0.7 }}>{t("transactions.totalRevenueCollected")}</div>
         <div style={{ fontSize:32, fontWeight:800, marginTop:4 }}>UGX {total.toLocaleString()}</div>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         <Table columns={[{key:"txRef",label:t("fields.refNumber")},{key:"patientId",label:t("fields.patient"),render:v=>pName(v)},{key:"amount",label:t("fields.amount"),render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"method",label:t("fields.method"),render:v=>methodLabel(v)},{key:"recordedBy",label:t("fields.recordedBy")},{key:"note",label:t("fields.note")},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={data}
           actions={row=>[<button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>]}
         />
@@ -802,35 +641,35 @@ function Overview({ token }) {
   const { t, i18n } = useTranslation();
   const [stats,setStats]=useState(null);
   useEffect(()=>{ api("/stats","GET",null,token).then(setStats).catch(()=>{}); },[token]);
-  if(!stats) return <div style={{ padding:40, color:"#546E7A" }}>{t("common.loading")}</div>;
+  if(!stats) return <div style={{ padding:40, color:"var(--text-muted)" }}>{t("common.loading")}</div>;
   const byRole=stats.usersByRole||{};
   return (
     <div>
-      <h2 style={{ margin:"0 0 24px", fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("overview.title")}</h2>
+      <h2 style={{ margin:"0 0 24px", fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("overview.title")}</h2>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:16, marginBottom:28 }}>
-        <StatCard label={t("dashboard.totalPatients")} value={stats.totalPatients} color="#1976D2" icon="patients" />
-        <StatCard label={t("dashboard.doctors")} value={stats.totalDoctors} color="#2E7D32" icon="doctors" />
-        <StatCard label={t("dashboard.staff")} value={stats.totalStaff} color="#6A1B9A" icon="staff" />
-        <StatCard label={t("dashboard.systemUsers")} value={stats.totalUsers} color="#43A047" icon="users" sub={t("overview.activeDisabled",{active:stats.activeUsers,disabled:stats.disabledUsers})} />
-        <StatCard label={t("overview.totalAppointments")} value={stats.totalAppointments} color="#F9A825" icon="appointments" />
-        <StatCard label={t("overview.totalRecords")} value={stats.totalRecords} color="#0D47A1" icon="records" />
-        <StatCard label={t("dashboard.pendingBills")} value={stats.pendingBills} color="#C62828" icon="billing" />
-        <StatCard label={t("dashboard.totalRevenue")} value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="#1976D2" icon="transactions" />
-        <StatCard label={t("dashboard.lowStock")} value={stats.lowStockItems} color="#C62828" icon="pharmacy" />
-        <StatCard label={t("overview.auditToday")} value={stats.auditToday} color="#6A1B9A" icon="activity" />
-        <StatCard label={t("overview.auditTotal")} value={stats.auditTotal} color="#546E7A" icon="activity" />
+        <StatCard label={t("dashboard.totalPatients")} value={stats.totalPatients} color="var(--info)" icon="patients" />
+        <StatCard label={t("dashboard.doctors")} value={stats.totalDoctors} color="var(--brand)" icon="doctors" />
+        <StatCard label={t("dashboard.staff")} value={stats.totalStaff} color="var(--purple)" icon="staff" />
+        <StatCard label={t("dashboard.systemUsers")} value={stats.totalUsers} color="var(--brand-accent)" icon="users" sub={t("overview.activeDisabled",{active:stats.activeUsers,disabled:stats.disabledUsers})} />
+        <StatCard label={t("overview.totalAppointments")} value={stats.totalAppointments} color="var(--warn)" icon="appointments" />
+        <StatCard label={t("overview.totalRecords")} value={stats.totalRecords} color="var(--info)" icon="records" />
+        <StatCard label={t("dashboard.pendingBills")} value={stats.pendingBills} color="var(--danger)" icon="billing" />
+        <StatCard label={t("dashboard.totalRevenue")} value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="var(--info)" icon="transactions" />
+        <StatCard label={t("dashboard.lowStock")} value={stats.lowStockItems} color="var(--danger)" icon="pharmacy" />
+        <StatCard label={t("overview.auditToday")} value={stats.auditToday} color="var(--purple)" icon="activity" />
+        <StatCard label={t("overview.auditTotal")} value={stats.auditTotal} color="var(--text-muted)" icon="activity" />
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))", gap:16 }}>
-        <div style={{ background:"#fff", borderRadius:16, padding:24, boxShadow:"0 2px 12px rgba(46,125,50,0.08)" }}>
+        <div style={{ background:"var(--surface)", borderRadius:16, padding:24, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)" }}>
           <h3 style={{ margin:"0 0 16px", fontSize:16, fontWeight:700 }}>{t("overview.usersByRole")}</h3>
-          {Object.keys(byRole).length===0 ? <p style={{ color:"#90A4AE", fontSize:13 }}>{t("common.noRecords")}</p> :
+          {Object.keys(byRole).length===0 ? <p style={{ color:"var(--text-faint)", fontSize:13 }}>{t("common.noRecords")}</p> :
             Object.entries(byRole).map(([r,c])=>(
-              <div key={r} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid #ECEFF1" }}>
+              <div key={r} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid var(--neutral-bg)" }}>
                 <Badge status={r}/><span style={{ fontWeight:800, fontSize:16 }}>{c}</span>
               </div>
             ))}
         </div>
-        <div style={{ background:"#fff", borderRadius:16, padding:24, boxShadow:"0 2px 12px rgba(46,125,50,0.08)" }}>
+        <div style={{ background:"var(--surface)", borderRadius:16, padding:24, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)" }}>
           <h3 style={{ margin:"0 0 16px", fontSize:16, fontWeight:700 }}>{t("overview.recentActivity")}</h3>
           <Table columns={[
             {key:"timestamp",label:t("audit.col.time"),render:v=>formatDateTime(v,i18n.language)},
@@ -845,17 +684,70 @@ function Overview({ token }) {
 
 function AuditActionTag({ action }) {
   const { t } = useTranslation();
-  const map={ CREATE:["#2E7D32","#E8F5E9"], UPDATE:["#1976D2","#E3F2FD"], DELETE:["#C62828","#FFEBEE"], LOGIN:["#2E7D32","#E8F5E9"], LOGIN_FAILED:["#C62828","#FFEBEE"], PASSWORD_RESET:["#6A1B9A","#F3E5F5"], ACCOUNT_DISABLED:["#C62828","#FFEBEE"], ACCOUNT_ENABLED:["#2E7D32","#E8F5E9"] };
-  const [c,bg]=map[action]||["#546E7A","#ECEFF1"];
+  const map={ CREATE:["var(--brand)","var(--brand-tint-light)"], UPDATE:["var(--info)","var(--info-bg)"], DELETE:["var(--danger)","var(--danger-bg)"], LOGIN:["var(--brand)","var(--brand-tint-light)"], LOGIN_FAILED:["var(--danger)","var(--danger-bg)"], PASSWORD_RESET:["var(--purple)","var(--purple-bg)"], ACCOUNT_DISABLED:["var(--danger)","var(--danger-bg)"], ACCOUNT_ENABLED:["var(--brand)","var(--brand-tint-light)"] };
+  const [c,bg]=map[action]||["var(--text-muted)","var(--neutral-bg)"];
   return <span style={{ background:bg, color:c, padding:"3px 10px", borderRadius:6, fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>{t(`audit.actions.${action}`,action)}</span>;
+}
+
+function ClearAuditModal({ token, hospitals, initialHospital, onClose, onDone }) {
+  const { t } = useTranslation();
+  const [hospitalId,setHospitalId]=useState(initialHospital||"all");
+  const [before,setBefore]=useState("");
+  const [confirm,setConfirm]=useState("");
+  const [busy,setBusy]=useState(false); const [err,setErr]=useState(""); const [result,setResult]=useState(null);
+  const submit=async()=>{
+    setBusy(true); setErr("");
+    try{ const r=await api("/audit-logs","DELETE",{ hospitalId, before:before||undefined, confirm },token); setResult(r.deleted); }
+    catch(e){ setErr(apiErrorMessage(e,t("common.error"))); }
+    setBusy(false);
+  };
+  return (
+    <Modal title={t("audit.clear.title")} onClose={result===null?onClose:onDone}>
+      {result!==null ? (
+        <div>
+          <p style={{ color:"var(--text)", fontSize:14 }}>{t("audit.clear.done",{count:result})}</p>
+          <div style={{ display:"flex", justifyContent:"flex-end" }}><button style={btnP} onClick={onDone}>{t("audit.clear.close")}</button></div>
+        </div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <div style={{ background:"var(--warn-bg)", border:"1px solid var(--warn-border)", color:"var(--warn-text)", borderRadius:10, padding:"10px 12px", fontSize:13 }}>{t("audit.clear.warning")}</div>
+          <Field label={t("audit.clear.scope")}>
+            <select style={inp} value={hospitalId} onChange={e=>setHospitalId(e.target.value)}>
+              <option value="all">{t("audit.filters.allHospitals")}</option>
+              <option value="platform">{t("audit.filters.platformOnly")}</option>
+              {hospitals.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
+            </select>
+          </Field>
+          <Field label={t("audit.clear.before")}>
+            <input style={inp} type="date" value={before} onChange={e=>setBefore(e.target.value)}/>
+            <div style={{ fontSize:12, color:"var(--text-muted)", marginTop:4 }}>{t("audit.clear.beforeHint")}</div>
+          </Field>
+          <Field label={t("audit.clear.type")}>
+            <input style={inp} value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="DELETE" autoComplete="off"/>
+          </Field>
+          {err&&<div style={{ color:"var(--danger)", fontSize:13 }}>{err}</div>}
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
+            <button style={btnG} onClick={onClose}>{t("audit.clear.cancel")}</button>
+            <button style={{ ...btnP, background:"var(--danger)" }} disabled={busy||confirm!=="DELETE"} onClick={submit}>{busy?t("common.loading"):t("audit.clear.confirm")}</button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
 }
 
 function AuditLogs({ token }) {
   const { t, i18n } = useTranslation();
-  const EMPTY={ action:"all", actor:"all", entity:"all", from:"", to:"" };
+  const EMPTY={ hospitalId:"all", q:"", action:"all", actor:"all", entity:"all", from:"", to:"" };
   const [logs,setLogs]=useState([]); const [meta,setMeta]=useState({actions:[],entities:[],actors:[]});
-  const [filters,setFilters]=useState(EMPTY); const [loading,setLoading]=useState(false);
-  useEffect(()=>{ api("/audit-logs/meta","GET",null,token).then(setMeta).catch(()=>{}); },[token]);
+  const [filters,setFilters]=useState(EMPTY); const [loading,setLoading]=useState(false); const [version,setVersion]=useState(0);
+  const [hospitals,setHospitals]=useState([]);
+  const [clearOpen,setClearOpen]=useState(false);
+  useEffect(()=>{ api("/hospitals","GET",null,token).then(h=>setHospitals(Array.isArray(h)?h:[])).catch(()=>{}); },[token]);
+  useEffect(()=>{
+    const qs=filters.hospitalId&&filters.hospitalId!=="all"?`?hospitalId=${encodeURIComponent(filters.hospitalId)}`:"";
+    api(`/audit-logs/meta${qs}`,"GET",null,token).then(setMeta).catch(()=>{});
+  },[token,filters.hospitalId,version]);
   const load=useCallback(async()=>{
     setLoading(true);
     const qs=new URLSearchParams();
@@ -863,17 +755,31 @@ function AuditLogs({ token }) {
     try{ setLogs(await api(`/audit-logs?${qs.toString()}`,"GET",null,token)); }catch{ setLogs([]); }
     setLoading(false);
   },[token,filters]);
-  useEffect(()=>{ load(); },[load]);
-  const set=(k,v)=>setFilters(f=>({...f,[k]:v}));
+  useEffect(()=>{ const id=setTimeout(load,filters.q?350:0); return ()=>clearTimeout(id); },[load,version,filters.q]);
+  const set=(k,v)=>setFilters(f=>({...f,[k]:v, ...(k==="hospitalId"?{actor:"all",action:"all",entity:"all"}:{})}));
   const fSel={ ...inp, width:"auto", minWidth:150, padding:"8px 10px" };
-  const fLbl={ display:"flex", flexDirection:"column", gap:4, fontSize:11, fontWeight:600, color:"#546E7A", textTransform:"uppercase", letterSpacing:0.5 };
+  const fLbl={ display:"flex", flexDirection:"column", gap:4, fontSize:11, fontWeight:600, color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:0.5 };
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("audit.title")}</h2>
-        <span style={{ fontSize:13, color:"#546E7A" }}>{loading?t("common.loading"):t("audit.count",{count:logs.length})}</span>
+        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("audit.title")}</h2>
+        <span style={{ display:"inline-flex", alignItems:"center", gap:14 }}>
+          <span style={{ fontSize:13, color:"var(--text-muted)" }}>{loading?t("common.loading"):t("audit.count",{count:logs.length})}</span>
+          <button style={{ ...btnG, color:"var(--danger)", borderColor:"var(--danger-border)" }} onClick={()=>setClearOpen(true)}><Icon name="trash" size={13}/> {t("audit.clear.button")}</button>
+        </span>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, padding:"18px 20px", boxShadow:"0 2px 12px rgba(46,125,50,0.08)", marginBottom:16, display:"flex", flexWrap:"wrap", gap:14, alignItems:"flex-end" }}>
+      {clearOpen&&<ClearAuditModal token={token} hospitals={hospitals} initialHospital={filters.hospitalId} onClose={()=>setClearOpen(false)} onDone={()=>{ setClearOpen(false); setVersion(v=>v+1); }}/>}
+      <div style={{ background:"var(--surface)", borderRadius:16, padding:"18px 20px", boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", marginBottom:16, display:"flex", flexWrap:"wrap", gap:14, alignItems:"flex-end" }}>
+        <label style={fLbl}>{t("audit.filters.hospital")}
+          <select style={fSel} value={filters.hospitalId} onChange={e=>set("hospitalId",e.target.value)}>
+            <option value="all">{t("audit.filters.allHospitals")}</option>
+            <option value="platform">{t("audit.filters.platformOnly")}</option>
+            {hospitals.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}
+          </select>
+        </label>
+        <label style={fLbl}>{t("audit.filters.search")}
+          <input style={{ ...fSel, minWidth:180 }} value={filters.q} placeholder={t("audit.filters.searchHint")} onChange={e=>set("q",e.target.value)}/>
+        </label>
         <label style={fLbl}>{t("audit.filters.action")}
           <select style={fSel} value={filters.action} onChange={e=>set("action",e.target.value)}>
             <option value="all">{t("audit.filters.all")}</option>
@@ -900,13 +806,13 @@ function AuditLogs({ token }) {
         </label>
         <button style={btnG} onClick={()=>setFilters(EMPTY)}><Icon name="close" size={13}/> {t("audit.filters.reset")}</button>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         <Table columns={[
           {key:"timestamp",label:t("audit.col.time"),render:v=>formatDateTime(v,i18n.language)},
           {key:"actorName",label:t("audit.col.actor"),render:(v,r)=><span style={{ display:"inline-flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>{v||"—"} <Badge status={r.actorRole}/></span>},
           {key:"action",label:t("audit.col.action"),render:v=><AuditActionTag action={v}/>},
           {key:"entity",label:t("audit.col.target"),render:(v,r)=>r.entityId?`${v} · ${String(r.entityId).slice(0,8)}`:(v||"—")},
-          {key:"status",label:t("audit.col.result"),render:v=><span style={{ color:v>=400?"#C62828":"#2E7D32", fontWeight:700 }}>{v||"—"}</span>},
+          {key:"status",label:t("audit.col.result"),render:v=><span style={{ color:v>=400?"var(--danger)":"var(--brand-text)", fontWeight:700 }}>{v||"—"}</span>},
           {key:"ip",label:t("audit.col.ip"),render:v=>v||"—"},
         ]} data={logs} />
       </div>
@@ -932,13 +838,13 @@ function StaffProfileModal({ token, member, onClose, onChanged }) {
   if(sub==="edit") return <UserFormModal token={token} initial={{...member,password:""}} onClose={()=>setSub(null)} onSaved={()=>{setSub(null);onChanged();}}/>;
   if(sub==="reset") return <ResetPasswordModal token={token} user={member} onClose={()=>setSub(null)} onDone={()=>{setSub(null);onChanged();}}/>;
   const row=(label,value)=>(
-    <div style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"9px 0", borderBottom:"1px solid #ECEFF1", fontSize:14 }}>
-      <span style={{ color:"#546E7A" }}>{label}</span><span style={{ fontWeight:600, textAlign:"end" }}>{value}</span>
+    <div style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"9px 0", borderBottom:"1px solid var(--neutral-bg)", fontSize:14 }}>
+      <span style={{ color:"var(--text-muted)" }}>{label}</span><span style={{ fontWeight:600, textAlign:"end" }}>{value}</span>
     </div>
   );
   return (
     <Modal title={t("staffProfile.title",{name:member.name})} onClose={onClose}>
-      {err && <div style={{ background:"#fff5f5", border:"1px solid #ffd0d0", borderRadius:8, padding:"10px 14px", color:"#e53e3e", fontSize:13, marginBottom:16 }}>{err}</div>}
+      {err && <div style={{ background:"var(--danger-bg)", border:"1px solid var(--danger-border)", borderRadius:8, padding:"10px 14px", color:"var(--danger)", fontSize:13, marginBottom:16 }}>{err}</div>}
       {row(t("common.username"),member.username)}
       {row(t("fields.role"),<Badge status={member.role}/>)}
       {row(t("fields.status"),<Badge status={member.status||"active"}/>)}
@@ -968,20 +874,20 @@ function People({ token }) {
   const sFiltered=staff.filter(s=>[s.name,s.username,s.role].filter(Boolean).join(" ").toLowerCase().includes(q));
   const pFiltered=patients.filter(p=>[p.name,p.phone].filter(Boolean).join(" ").toLowerCase().includes(q));
   const tabBtn=(key,label,count)=>(
-    <button onClick={()=>setSearch("")||setTab(key)} style={{ background:tab===key?"#2E7D32":"#E8F5E9", color:tab===key?"#fff":"#2E7D32", border:"1px solid #C8E6C9", borderRadius:8, padding:"8px 16px", fontSize:13, fontWeight:600, cursor:"pointer" }}>{label} ({count})</button>
+    <button onClick={()=>setSearch("")||setTab(key)} style={{ background:tab===key?"var(--brand)":"var(--brand-tint-light)", color:tab===key?"#fff":"var(--brand-text)", border:"1px solid var(--brand-tint)", borderRadius:8, padding:"8px 16px", fontSize:13, fontWeight:600, cursor:"pointer" }}>{label} ({count})</button>
   );
   return (
     <div>
-      <h2 style={{ margin:"0 0 20px", fontSize:22, fontWeight:800, color:"#1B5E20" }}>{t("people.title")}</h2>
+      <h2 style={{ margin:"0 0 20px", fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("people.title")}</h2>
       <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
         {tabBtn("staff",t("people.tabStaff"),staff.length)}
         {tabBtn("patients",t("people.tabPatients"),patients.length)}
         <div style={{ position:"relative", marginInlineStart:"auto" }}>
-          <span style={{ position:"absolute", insetInlineStart:10, top:"50%", transform:"translateY(-50%)", color:"#90A4AE" }}><Icon name="search" size={15}/></span>
+          <span style={{ position:"absolute", insetInlineStart:10, top:"50%", transform:"translateY(-50%)", color:"var(--text-faint)" }}><Icon name="search" size={15}/></span>
           <input style={{ ...inp, paddingInlineStart:34, width:220 }} placeholder={t("common.search")} value={search} onChange={e=>setSearch(e.target.value)}/>
         </div>
       </div>
-      <div style={{ background:"#fff", borderRadius:16, boxShadow:"0 2px 12px rgba(46,125,50,0.08)", overflow:"hidden" }}>
+      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         {tab==="staff" ? (
           <Table columns={[
             {key:"name",label:t("fields.name")},
@@ -1026,32 +932,72 @@ const ALL_MODULES = [
 
 export default function App() {
   const { t, i18n } = useTranslation();
+  const platform = usePlatform();
   const [token,setToken]=useState(()=>localStorage.getItem("hms_token"));
   const [user,setUser]=useState(()=>{ try{return JSON.parse(localStorage.getItem("hms_user"));}catch{return null;} });
-  const [active,setActive]=useState("dashboard");
+  const [hospital,setHospital]=useState(()=>{ try{return JSON.parse(localStorage.getItem("hms_hospital"));}catch{return null;} });
+  const [active,setActive]=useState(()=>{ try{ return JSON.parse(localStorage.getItem("hms_user"))?.role==="superadmin"?"hospitals":"dashboard"; }catch{ return "dashboard"; } });
   const [sidebarOpen,setSidebarOpen]=useState(true);
 
-  const handleLogin=(tok,u)=>{ localStorage.setItem("hms_token",tok); localStorage.setItem("hms_user",JSON.stringify(u)); setToken(tok);setUser(u);setActive("dashboard"); };
-  const handleLogout=useCallback(()=>{ localStorage.removeItem("hms_token"); localStorage.removeItem("hms_user"); setToken(null);setUser(null); },[]);
+  const saveHospital=h=>{ setHospital(h||null); try{ h?localStorage.setItem("hms_hospital",JSON.stringify(h)):localStorage.removeItem("hms_hospital"); }catch{ /* storage unavailable */ } };
+  const handleLogin=(tok,u,h)=>{ localStorage.setItem("hms_token",tok); localStorage.setItem("hms_user",JSON.stringify(u)); saveHospital(h); setToken(tok);setUser(u);setActive(u.role==="superadmin"?"hospitals":"dashboard"); };
+  const handleLogout=useCallback(()=>{ localStorage.removeItem("hms_token"); localStorage.removeItem("hms_user"); localStorage.removeItem("hms_hospital"); setToken(null);setUser(null);setHospital(null); },[]);
 
-  useEffect(()=>{ onAuthError = handleLogout; return ()=>{ onAuthError = null; }; },[handleLogout]);
+  useEffect(()=>{ setAuthErrorHandler(handleLogout); return ()=>setAuthErrorHandler(null); },[handleLogout]);
+
+  // Signed in: the whole app takes the hospital's colour (platform colour for the platform owner).
+  useEffect(()=>{ if(token) applyBrand(effectiveColor(hospital?.theme?.primaryColor)); },[token,hospital,platform.color]);
+
+  // Refresh the hospital's name, theme and enabled features whenever the app
+  // opens, so a feature the platform owner switched on/off shows up without
+  // everyone having to log out. A suspended hospital is signed out here.
+  useEffect(()=>{
+    if(!token) return;
+    api("/session","GET",null,token)
+      .then(s=>saveHospital(s.hospital))
+      .catch(e=>{ if(/suspended/i.test(apiErrorMessage(e,""))){ alert(t("login.suspended")); handleLogout(); } });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[token]);
+
+  // Browser tab title: the hospital's name once signed in, the product name otherwise.
+  useEffect(()=>{ document.title=(token&&hospital?.name)||platform.name; },[token,hospital,platform.name]);
 
   if(!token||!user) return <LoginPage onLogin={handleLogin}/>;
 
-  const allowed=MODULES_BY_ROLE[user.role]||["dashboard"];
-  const modules=ALL_MODULES.filter(m=>allowed.includes(m.key));
+  const role=user.role;
+  const allowed=MODULES_BY_ROLE[role]||["dashboard"];
+  const features=hospital?.features;
+  const isVisible=m=>{
+    const roleOk=m.roles ? m.roles.includes(role) : allowed.includes(m.key);
+    if(!roleOk) return false;
+    const feat=m.feature||LEGACY_FEATURE[m.key];
+    if(!feat||role==="superadmin") return true;
+    // Hospital info not loaded yet: keep the long-standing screens, hold back the newer ones.
+    return features ? Boolean(features[feat]) : Boolean(!m.roles);
+  };
+  const modules=(()=>{
+    const list=[...MODULES.filter(m=>m.first),...ALL_MODULES,...MODULES.filter(m=>!m.first&&!m.after)].filter(isVisible);
+    // A module with after:"key" sits right below that menu item (or at the top if it isn't shown).
+    MODULES.filter(m=>m.after&&!m.first).filter(isVisible).forEach(m=>{
+      const i=list.findIndex(x=>x.key===m.after);
+      list.splice(i+1,0,m);
+    });
+    return list;
+  })();
   const ActiveModule=modules.find(m=>m.key===active)||modules[0];
   const ActiveComponent=ActiveModule.Component;
   const activeLabel=t(`nav.${ActiveModule.navKey}`);
-  const roleColors={ superadmin:"#b91c1c", admin:"#2E7D32", doctor:"#1976D2", receptionist:"#F9A825", pharmacist:"#43A047" };
-  const roleColor=roleColors[user.role]||"#3b6fd4";
+  const roleColors={ superadmin:"var(--danger)", admin:"var(--brand)", doctor:"var(--info)", receptionist:"var(--warn)", pharmacist:"var(--brand-accent)", labstaff:"var(--teal)" };
+  const roleColor=roleColors[role]||"var(--info)";
+  const brand=effectiveColor(hospital?.theme?.primaryColor);
+  const orgName=hospital?.name||platform.name;
 
   return (
-    <div style={{ display:"flex", minHeight:"100vh", fontFamily:"'Segoe UI',system-ui,sans-serif", background:"#E8F5E9" }}>
-      <div style={{ width:sidebarOpen?240:68, background:"linear-gradient(180deg,#1B5E20 0%,#2E7D32 100%)", color:"#fff", display:"flex", flexDirection:"column", transition:"width 0.2s", overflow:"hidden", flexShrink:0, position:"sticky", top:0, height:"100vh" }}>
+    <div style={{ display:"flex", minHeight:"100vh", fontFamily:"'Segoe UI',system-ui,sans-serif", background:"var(--page-bg)", color:"var(--text)" }}>
+      <div style={{ width:sidebarOpen?240:68, background:`linear-gradient(180deg,${shade(brand,0.35)} 0%,${brand} 100%)`, color:"#fff", display:"flex", flexDirection:"column", transition:"width 0.2s", overflow:"hidden", flexShrink:0, position:"sticky", top:0, height:"100vh" }}>
         <div style={{ padding:"20px 16px", display:"flex", alignItems:"center", gap:10, borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
-          <div style={{ width:36, height:36, background:"rgba(255,255,255,0.2)", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🏥</div>
-          {sidebarOpen&&<div><div style={{ fontWeight:800, fontSize:15 }}>{t("app.name")}</div><div style={{ fontSize:11, opacity:0.6 }}>{t("app.version")}</div></div>}
+          <div style={{ width:36, height:36, background:"rgba(255,255,255,0.2)", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0, overflow:"hidden" }}>{(hospital?.logo||(!hospital&&platform.logo))?<img src={hospital?.logo||platform.logo} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>:"🏥"}</div>
+          {sidebarOpen&&<div><div style={{ fontWeight:800, fontSize:15 }}>{orgName}</div>{role==="superadmin"&&<div style={{ fontSize:11, opacity:0.6 }}>{t("roles.superadmin")}</div>}</div>}
         </div>
         <nav style={{ flex:1, padding:"12px 8px", overflowY:"auto" }}>
           {modules.map(m=>(
@@ -1067,25 +1013,26 @@ export default function App() {
             <div style={{ fontSize:13, fontWeight:700 }}>{user.name}</div>
             <div style={{ marginTop:4 }}><Badge status={user.role}/></div>
           </div>}
-          <button onClick={handleLogout} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"10px 12px", borderRadius:10, border:"none", cursor:"pointer", background:"rgba(198,40,40,0.2)", color:"#FFCDD2", fontWeight:600, fontSize:13 }}>
+          <button onClick={handleLogout} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"10px 12px", borderRadius:10, border:"none", cursor:"pointer", background:"rgba(198,40,40,0.2)", color:"var(--danger-border)", fontWeight:600, fontSize:13 }}>
             <Icon name="logout" size={16}/>{sidebarOpen&&t("app.signOut")}
           </button>
         </div>
       </div>
       <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0 }}>
-        <div style={{ background:"#fff", borderBottom:"1px solid #C8E6C9", padding:"0 24px", height:60, display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", position:"sticky", top:0, zIndex:100 }}>
+        <div style={{ background:"var(--surface)", borderBottom:"1px solid var(--brand-tint)", padding:"0 24px", height:60, display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", position:"sticky", top:0, zIndex:100 }}>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <button onClick={()=>setSidebarOpen(s=>!s)} style={{ background:"#E8F5E9", border:"none", borderRadius:8, padding:8, cursor:"pointer", color:"#2E7D32" }}><Icon name="dashboard" size={16}/></button>
-            <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"#1B5E20" }}>{activeLabel}</h2>
+            <button onClick={()=>setSidebarOpen(s=>!s)} style={{ background:"var(--brand-tint-light)", border:"none", borderRadius:8, padding:8, cursor:"pointer", color:"var(--brand-text)" }}><Icon name="dashboard" size={16}/></button>
+            <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"var(--brand-text-strong)" }}>{activeLabel}</h2>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <ThemeToggle />
             <LanguageSwitcher />
-            <span style={{ fontSize:13, color:"#546E7A" }}>{new Date().toLocaleDateString(i18n.language,{weekday:"short",year:"numeric",month:"short",day:"numeric"})}</span>
+            <span style={{ fontSize:13, color:"var(--text-muted)" }}>{new Date().toLocaleDateString(i18n.language,{weekday:"short",year:"numeric",month:"short",day:"numeric"})}</span>
             <div style={{ width:34, height:34, background:roleColor, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:700, fontSize:14 }}>{user.name?.charAt(0).toUpperCase()}</div>
           </div>
         </div>
         <div style={{ flex:1, padding:28, overflowY:"auto" }}>
-          <ActiveComponent token={token} user={user}/>
+          <ActiveComponent token={token} user={user} hospital={hospital}/>
         </div>
       </div>
     </div>
