@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { REMEMBER_HOSPITAL_CODE } from "./config";
 import { usePlatform } from "./platform";
@@ -8,6 +8,7 @@ import {
   api, apiErrorMessage, withErr, formatDate, formatDateTime, setAuthErrorHandler,
   Icon, LanguageSwitcher, ThemeToggle, Modal, Field, inp, btnP, btnD, btnE, btnG,
   Badge, StatCard, Table,
+  LoadingButton, SearchSelect, patientFetcher, formatMoney, setCurrency, setPayCurrencies, getAcceptedCurrencies, getPayRates, rateView, getCurrency, toast, apiErrorCode, useAction, useOptions,
 } from "./shared";
 
 const MODULES_BY_ROLE = {
@@ -16,7 +17,7 @@ const MODULES_BY_ROLE = {
   doctor:       ["dashboard", "appointments", "records", "pharmacy"],
   receptionist: ["dashboard", "patients", "appointments", "records", "billing", "transactions"],
   pharmacist:   ["dashboard", "pharmacy"],
-  labstaff:     ["dashboard"],
+  labstaff:     ["dashboard"], // the Laboratory screen is added by the module list (needs the hospital's laboratory feature)
 };
 
 // Older built-in screens that depend on a hospital feature flag.
@@ -46,7 +47,7 @@ function LoginPage({ onLogin }) {
   // Otherwise it starts empty. A blank code is only accepted for the platform owner.
   const [form, setForm] = useState({ hospitalSlug:initialHospitalCode(), username:"", password:"" });
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [run, loading] = useAction();
 
   // Show the hospital's own logo, name and colour as soon as its code is known
   // (from its link or typed in). Unknown code / offline = the platform's look.
@@ -65,24 +66,26 @@ function LoginPage({ onLogin }) {
   useEffect(()=>{ applyBrand(effectiveColor(look?.primaryColor)); },[look,platform.color]);
   const logo=look?.logo||platform.logo;
 
-  const handleSubmit = async () => {
-    setLoading(true); setError("");
+  const handleSubmit = () => run(async () => {
+    setError("");
+    if (!form.username.trim() || !form.password) { setError(t("login.fillAll")); return false; }
     try {
-      const payload = { ...form, hospitalSlug: form.hospitalSlug.trim().toLowerCase() };
+      const payload = { ...form, username: form.username.trim(), hospitalSlug: form.hospitalSlug.trim().toLowerCase() };
       const data = await api("/login","POST",payload);
       if (REMEMBER_HOSPITAL_CODE) { try { localStorage.setItem("hms_hospital_code", payload.hospitalSlug); } catch { /* storage unavailable — not critical */ } }
       onLogin(data.token,data.user,data.hospital);
     }
     catch (e) {
-      // Say what actually went wrong: wrong details, too many tries, or no connection.
-      let msg = "";
-      try { msg = JSON.parse(e.message)?.error || ""; } catch { /* not JSON — the server was unreachable */ }
-      if (!msg) setError(t("login.unreachable"));
-      else if (/too many/i.test(msg)) setError(t("login.tooMany"));
+      // Say what actually went wrong: no connection, server waking up, too many tries, or wrong details.
+      const code = apiErrorCode(e);
+      if (code === "NETWORK") setError(t("login.unreachable"));
+      else if (code === "SERVER_DOWN" || code === "SERVER_ERROR") setError(t("login.serverBusy"));
+      else if (code === "RATE_LIMITED") setError(t("login.tooMany"));
+      else if (code === "MISSING_FIELDS") setError(t("login.fillAll"));
       else setError(t("login.error"));
+      return false;
     }
-    finally { setLoading(false); }
-  };
+  });
   return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,var(--brand-dark) 0%,var(--brand) 50%,var(--info) 100%)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
       <div style={{ position:"absolute", top:20, insetInlineEnd:20, display:"flex", gap:8 }}><ThemeToggle variant="dark" /><LanguageSwitcher variant="dark" /></div>
@@ -93,20 +96,20 @@ function LoginPage({ onLogin }) {
           {look?.name&&<div style={{ fontSize:11, color:"var(--text-faint)", marginTop:4 }}>{t("login.poweredBy",{name:platform.name})}</div>}
           <p style={{ margin:"6px 0 0", color:"var(--text-muted)", fontSize:14 }}>{t("login.subtitle")}</p>
         </div>
-        {error && <div style={{ background:"var(--danger-bg)", border:"1px solid var(--danger-border)", borderRadius:8, padding:"10px 14px", color:"var(--danger)", fontSize:13, marginBottom:16 }}>{error}</div>}
+        {error && <div role="alert" data-testid="login-error" style={{ background:"var(--danger-bg)", border:"1px solid var(--danger-border)", borderRadius:8, padding:"10px 14px", color:"var(--danger)", fontSize:13, marginBottom:16 }}>{error}</div>}
         <Field label={t("login.hospitalCode")}>
           <input style={inp} value={form.hospitalSlug} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={e=>setForm(f=>({...f,hospitalSlug:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} />
           <div style={{ fontSize:11, color:"var(--text-faint)", marginTop:4 }}>{t("login.hospitalCodeHint")}</div>
         </Field>
         <Field label={t("common.username")}><input style={inp} value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} /></Field>
         <Field label={t("common.password")}><input style={inp} type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} /></Field>
-        <button onClick={handleSubmit} disabled={loading} style={{ ...btnP, width:"100%", justifyContent:"center", marginTop:8, padding:"13px 24px", fontSize:15 }}>{loading?t("login.signingIn"):t("login.signIn")}</button>
+        <button onClick={handleSubmit} disabled={loading} aria-busy={loading} style={{ ...btnP, width:"100%", justifyContent:"center", marginTop:8, padding:"13px 24px", fontSize:15, opacity:loading?0.7:1 }}>{loading&&<span className="spin" aria-hidden="true"/>}{loading?t("login.signingIn"):t("login.signIn")}</button>
       </div>
     </div>
   );
 }
 
-function Dashboard({ token, user }) {
+function Dashboard({ token, user, hospital }) {
   const { t, i18n } = useTranslation();
   const [stats, setStats] = useState(null);
   useEffect(()=>{ api("/stats","GET",null,token).then(setStats).catch(()=>{}); },[token]);
@@ -126,7 +129,7 @@ function Dashboard({ token, user }) {
           <StatCard label={t("dashboard.systemUsers")} value={stats.totalUsers} color="var(--brand-accent)" icon="users" />
           <StatCard label={t("dashboard.todayAppointments")} value={stats.todayAppointments} color="var(--warn)" icon="appointments" />
           <StatCard label={t("dashboard.pendingBills")} value={stats.pendingBills} color="var(--danger)" icon="billing" />
-          <StatCard label={t("dashboard.totalRevenue")} value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="var(--info)" icon="transactions" />
+          <StatCard label={t("dashboard.totalRevenue")} value={formatMoney(stats.totalRevenue)} color="var(--info)" icon="transactions" />
           <StatCard label={t("dashboard.lowStock")} value={stats.lowStockItems} color="var(--danger)" icon="pharmacy" />
         </>}
         {role==="doctor" && <>
@@ -140,7 +143,7 @@ function Dashboard({ token, user }) {
           <StatCard label={t("dashboard.totalPatients")} value={stats.totalPatients} color="var(--info)" icon="patients" />
           <StatCard label={t("dashboard.todayAppointments")} value={stats.todayAppointments} color="var(--warn)" icon="appointments" />
           <StatCard label={t("dashboard.pendingBills")} value={stats.pendingBills} color="var(--danger)" icon="billing" />
-          <StatCard label={t("dashboard.revenueCollected")} value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="var(--brand)" icon="transactions" />
+          <StatCard label={t("dashboard.revenueCollected")} value={formatMoney(stats.totalRevenue)} color="var(--brand)" icon="transactions" />
         </>}
         {role==="pharmacist" && <>
           <StatCard label={t("dashboard.totalItems")} value={stats.totalItems} color="var(--info)" icon="pharmacy" />
@@ -148,8 +151,11 @@ function Dashboard({ token, user }) {
           <StatCard label={t("dashboard.expiringSoon")} value={stats.expiringSoon} color="var(--warn)" icon="alert" sub={t("dashboard.within30Days")} />
           <StatCard label={t("dashboard.outOfStock")} value={stats.outOfStock} color="var(--danger)" icon="alert" />
           {stats.todaySalesCount!==undefined && <StatCard label={t("dashboard.todaySalesCount")} value={stats.todaySalesCount} color="var(--brand)" icon="pharmacy" />}
-          {stats.todaySalesRevenue!==undefined && <StatCard label={t("dashboard.todaySalesRevenue")} value={`UGX ${(stats.todaySalesRevenue||0).toLocaleString()}`} color="var(--info)" icon="transactions" />}
+          {stats.todaySalesRevenue!==undefined && <StatCard label={t("dashboard.todaySalesRevenue")} value={formatMoney(stats.todaySalesRevenue)} color="var(--info)" icon="transactions" />}
         </>}
+        {role==="labstaff" && hospital && hospital.features && !hospital.features.laboratory && (
+          <div role="alert" style={{ gridColumn:"1 / -1", background:"var(--warn-bg)", border:"1px solid var(--warn-border)", color:"var(--text)", borderRadius:12, padding:"14px 18px", fontSize:14 }}>{t("dashboard.labOff")}</div>
+        )}
         {role==="labstaff" && <>
           <StatCard label={t("dashboard.pendingOrders")} value={stats.pendingOrders} color="var(--warn)" icon="lab" />
           <StatCard label={t("dashboard.inProgressOrders")} value={stats.inProgressOrders} color="var(--info)" icon="lab" />
@@ -173,19 +179,27 @@ function UserFormModal({ token, initial, allowSuperadmin = false, onClose, onSav
   const { t } = useTranslation();
   const [form, setForm] = useState(initial || {});
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
   const editing = Boolean(form.id);
+  const opts = useOptions(token);
 
   const save = async () => {
-    setBusy(true); setErr("");
+    setErr("");
+    if (!String(form.name||"").trim()) { setErr(t("users.errName")); return false; }
+    if (!/^[A-Za-z0-9._-]{3,40}$/.test(form.username||"")) { setErr(t("users.errUsername")); return false; }
+    if (!editing && String(form.password||"").length < 8) { setErr(t("users.errPassword")); return false; }
+    if (editing && form.password && form.password.length < 8) { setErr(t("users.errPassword")); return false; }
+    if (!form.role) { setErr(t("users.errRole")); return false; }
     try {
       if (editing) await api(`/users/${form.id}`, "PUT", form, token);
       else await api("/users", "POST", form, token);
+      toast.success(t("users.saved"));
       onSaved?.();
-    } catch (e) {
-      try { setErr(JSON.parse(e.message)?.error || t("common.error")); } catch { setErr(t("common.error")); }
-    } finally { setBusy(false); }
+    } catch (e) { setErr(apiErrorMessage(e, t("common.error"))); return false; }
   };
+  // Roles offered: only ones this user may assign (never super admin unless allowed; admin only for the platform owner).
+  const roleList = [...(opts?.assignableRoles || ["doctor","receptionist","pharmacist","labstaff"])];
+  if (allowSuperadmin && !roleList.includes("superadmin")) roleList.unshift("superadmin");
+  if (form.role && !roleList.includes(form.role)) roleList.unshift(form.role); // keep showing the current role when editing an existing account
 
   return (
     <Modal title={editing ? t("users.editTitle") : t("users.createTitle")} onClose={onClose}>
@@ -193,20 +207,15 @@ function UserFormModal({ token, initial, allowSuperadmin = false, onClose, onSav
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
         <Field label={t("fields.fullName")}><input style={inp} value={form.name||""} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></Field>
         <Field label={t("common.username")}><input style={inp} value={form.username||""} onChange={e=>setForm(f=>({...f,username:e.target.value}))}/></Field>
-        <Field label={t("fields.password")}><input style={inp} type="password" placeholder={editing?t("users.passwordKeepBlank"):t("users.passwordSet")} value={form.password||""} onChange={e=>setForm(f=>({...f,password:e.target.value}))}/></Field>
+        <Field label={t("fields.password")}><input style={inp} type="password" autoComplete="new-password" placeholder={editing?t("users.passwordKeepBlank"):t("users.passwordHint")} value={form.password||""} onChange={e=>setForm(f=>({...f,password:e.target.value}))}/></Field>
         <Field label={t("fields.role")}>
           <select style={inp} value={form.role||""} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
             <option value="">{t("common.select")}</option>
-            {allowSuperadmin && <option value="superadmin">{t("roles.superadmin")}</option>}
-            <option value="admin">{t("roles.admin")}</option>
-            <option value="doctor">{t("roles.doctor")}</option>
-            <option value="receptionist">{t("roles.receptionist")}</option>
-            <option value="pharmacist">{t("roles.pharmacist")}</option>
-            <option value="labstaff">{t("roles.labstaff")}</option>
+            {roleList.map(r=><option key={r} value={r} disabled={r==="admin"&&!(opts?.assignableRoles||[]).includes("admin")&&form.role!=="admin"}>{t(`roles.${r}`)}</option>)}
           </select>
         </Field>
       </div>
-      <button style={{ ...btnP, marginTop:8, opacity:busy?0.7:1 }} disabled={busy} onClick={save}><Icon name="check" size={16}/> {editing?t("users.updateBtn"):t("users.createBtn")}</button>
+      <LoadingButton style={{ ...btnP, marginTop:8 }} busyLabel={t("common.saving")} onClick={save}><Icon name="check" size={16}/> {editing?t("users.updateBtn"):t("users.createBtn")}</LoadingButton>
     </Modal>
   );
 }
@@ -216,19 +225,17 @@ function UserFormModal({ token, initial, allowSuperadmin = false, onClose, onSav
 function ResetPasswordModal({ token, user, onClose, onDone }) {
   const { t } = useTranslation();
   const [pw, setPw] = useState("");
-  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [generated, setGenerated] = useState(null);
 
   const submit = async () => {
-    setBusy(true); setErr("");
+    setErr("");
+    if (pw && pw.length < 8) { setErr(t("users.errPassword")); return false; }
     try {
       const r = await api(`/users/${user.id}/password`, "PUT", pw ? { password: pw } : {}, token);
       if (r.generated && r.password) setGenerated(r.password);
-      else { onDone?.(); }
-    } catch (e) {
-      try { setErr(JSON.parse(e.message)?.error || t("common.error")); } catch { setErr(t("common.error")); }
-    } finally { setBusy(false); }
+      else { toast.success(t("users.saved")); onDone?.(); }
+    } catch (e) { setErr(apiErrorMessage(e, t("common.error"))); return false; }
   };
 
   return (
@@ -245,9 +252,9 @@ function ResetPasswordModal({ token, user, onClose, onDone }) {
           <Field label={t("resetPassword.newPassword")}>
             <input style={inp} type="text" placeholder={t("resetPassword.leaveBlankGenerate")} value={pw} onChange={e=>setPw(e.target.value)}/>
           </Field>
-          <button style={{ ...btnP, marginTop:8, opacity:busy?0.7:1 }} disabled={busy} onClick={submit}>
+          <LoadingButton style={{ ...btnP, marginTop:8 }} busyLabel={t("common.saving")} onClick={submit}>
             <Icon name="key" size={16}/> {pw ? t("resetPassword.submit") : t("resetPassword.generateSubmit")}
-          </button>
+          </LoadingButton>
         </>
       )}
     </Modal>
@@ -283,29 +290,37 @@ function UserManagement({ token, user }) {
   );
 }
 
+const panel={ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" };
+const pageHead={ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 };
+const h2s={ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" };
+
 function Patients({ token, user }) {
   const { t, i18n } = useTranslation();
   const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({}); const [search,setSearch]=useState("");
   const canEdit=["admin","receptionist"].includes(user.role);
-  const load=useCallback(()=>api("/patients","GET",null,token).then(setData).catch(()=>{}),[token]);
-  useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(await withErr(()=>form.id?api(`/patients/${form.id}`,"PUT",form,token):api("/patients","POST",form,token))){ setModal(null);setForm({});load(); } };
+  // The search runs on the server (name, patient number or phone), so a big register stays fast.
+  const load=useCallback(()=>api(`/patients?limit=200${search.trim()?`&q=${encodeURIComponent(search.trim())}`:""}`,"GET",null,token).then(setData).catch(()=>{}),[token,search]);
+  useEffect(()=>{ const id=setTimeout(load,search?300:0); return ()=>clearTimeout(id); },[load,search]);
+  const save=async()=>{
+    if(!String(form.name||"").trim()){ toast.error(t("patients.errName")); return false; }
+    const ok=await withErr(()=>form.id?api(`/patients/${form.id}`,"PUT",form,token):api("/patients","POST",form,token),t("patients.saved"));
+    if(ok){ setModal(null);setForm({});load(); } else return false;
+  };
   const del=async(id)=>{ if(confirm(t("patients.deleteConfirm"))){ await withErr(()=>api(`/patients/${id}`,"DELETE",null,token)); load(); } };
-  const filtered=data.filter(p=>p.name?.toLowerCase().includes(search.toLowerCase())||p.phone?.includes(search));
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("patients.title")}</h2>
+      <div style={pageHead}>
+        <h2 style={h2s}>{t("patients.title")}</h2>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
           <div style={{ position:"relative" }}>
             <span style={{ position:"absolute", insetInlineStart:10, top:"50%", transform:"translateY(-50%)", color:"var(--text-faint)" }}><Icon name="search" size={15}/></span>
-            <input style={{ ...inp, paddingInlineStart:34, width:220 }} placeholder={t("common.search")} value={search} onChange={e=>setSearch(e.target.value)}/>
+            <input style={{ ...inp, paddingInlineStart:34, width:260 }} placeholder={t("patients.searchHint")} aria-label={t("common.search")} value={search} onChange={e=>setSearch(e.target.value)}/>
           </div>
           {canEdit && <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("patients.add")}</button>}
         </div>
       </div>
-      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
-        <Table columns={[{key:"name",label:t("fields.fullName")},{key:"age",label:t("fields.age")},{key:"gender",label:t("fields.gender"),render:v=>v?t(`gender.${String(v).toLowerCase()}`,v):"—"},{key:"phone",label:t("fields.phone")},{key:"bloodGroup",label:t("fields.bloodGroup")},{key:"address",label:t("fields.address")},{key:"createdAt",label:t("fields.registered"),render:v=>formatDate(v,i18n.language)}]} data={filtered}
+      <div style={panel}>
+        <Table columns={[{key:"patientNumber",label:t("patients.number"),render:v=>v||"—"},{key:"name",label:t("fields.fullName")},{key:"age",label:t("fields.age")},{key:"gender",label:t("fields.gender"),render:v=>v?t(`gender.${String(v).toLowerCase()}`,v):"—"},{key:"phone",label:t("fields.phone")},{key:"bloodGroup",label:t("fields.bloodGroup")},{key:"address",label:t("fields.address")},{key:"createdAt",label:t("fields.registered"),render:v=>formatDate(v,i18n.language)}]} data={data}
           actions={canEdit?row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
             user.role==="admin"&&<button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>,
@@ -314,9 +329,10 @@ function Patients({ token, user }) {
       </div>
       {modal==="add" && (
         <Modal title={form.id?t("patients.editTitle"):t("patients.registerTitle")} onClose={()=>setModal(null)}>
+          {form.patientNumber && <div style={{ marginBottom:12, fontSize:13, color:"var(--text-muted)" }}>{t("patients.number")}: <b>{form.patientNumber}</b></div>}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
             <Field label={t("fields.fullName")}><input style={inp} value={form.name||""} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></Field>
-            <Field label={t("fields.age")}><input style={inp} type="number" value={form.age||""} onChange={e=>setForm(f=>({...f,age:e.target.value}))}/></Field>
+            <Field label={t("fields.age")}><input style={inp} type="number" min="0" value={form.age||""} onChange={e=>setForm(f=>({...f,age:e.target.value}))}/></Field>
             <Field label={t("fields.gender")}><select style={inp} value={form.gender||""} onChange={e=>setForm(f=>({...f,gender:e.target.value}))}><option value="">{t("common.select")}</option><option value="Male">{t("gender.male")}</option><option value="Female">{t("gender.female")}</option><option value="Other">{t("gender.other")}</option></select></Field>
             <Field label={t("fields.bloodGroup")}><select style={inp} value={form.bloodGroup||""} onChange={e=>setForm(f=>({...f,bloodGroup:e.target.value}))}><option value="">{t("common.select")}</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></Field>
             <Field label={t("fields.phone")}><input style={inp} value={form.phone||""} onChange={e=>setForm(f=>({...f,phone:e.target.value}))}/></Field>
@@ -325,7 +341,7 @@ function Patients({ token, user }) {
           <Field label={t("fields.address")}><input style={inp} value={form.address||""} onChange={e=>setForm(f=>({...f,address:e.target.value}))}/></Field>
           <Field label={t("fields.emergencyContact")}><input style={inp} value={form.emergencyContact||""} onChange={e=>setForm(f=>({...f,emergencyContact:e.target.value}))}/></Field>
           <Field label={t("fields.notesAllergies")}><textarea style={{ ...inp, height:70, resize:"vertical" }} value={form.notes||""} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></Field>
-          <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> {form.id?t("patients.updateBtn"):t("patients.registerBtn")}</button>
+          <LoadingButton style={{ ...btnP, marginTop:8 }} busyLabel={t("common.saving")} onClick={save}><Icon name="check" size={16}/> {form.id?t("patients.updateBtn"):t("patients.registerBtn")}</LoadingButton>
         </Modal>
       )}
     </div>
@@ -334,18 +350,25 @@ function Patients({ token, user }) {
 
 function Doctors({ token }) {
   const { t } = useTranslation();
-  const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
+  const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({}); const [doctorUsers,setDoctorUsers]=useState([]);
+  const opts=useOptions(token);
   const load=useCallback(()=>api("/doctors","GET",null,token).then(setData).catch(()=>{}),[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(await withErr(()=>form.id?api(`/doctors/${form.id}`,"PUT",form,token):api("/doctors","POST",form,token))){ setModal(null);setForm({});load(); } };
+  // Login accounts with the Doctor role, so a doctor profile can be linked to one by name instead of an ID.
+  useEffect(()=>{ api("/users","GET",null,token).then(u=>setDoctorUsers(u.filter(x=>x.role==="doctor"))).catch(()=>{}); },[token,modal]);
+  const save=async()=>{
+    if(!String(form.name||"").trim()){ toast.error(t("doctors.errName")); return false; }
+    const ok=await withErr(()=>form.id?api(`/doctors/${form.id}`,"PUT",form,token):api("/doctors","POST",form,token),t("doctors.saved"));
+    if(ok){ setModal(null);setForm({});load(); } else return false;
+  };
   const del=async(id)=>{ if(confirm(t("doctors.deleteConfirm"))){ await withErr(()=>api(`/doctors/${id}`,"DELETE",null,token)); load(); } };
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("doctors.title")}</h2>
+      <div style={pageHead}>
+        <h2 style={h2s}>{t("doctors.title")}</h2>
         <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("doctors.add")}</button>
       </div>
-      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
+      <div style={panel}>
         <Table columns={[{key:"name",label:t("fields.name")},{key:"specialization",label:t("fields.specialization")},{key:"qualification",label:t("fields.qualification")},{key:"department",label:t("fields.department")},{key:"phone",label:t("fields.phone")},{key:"status",label:t("fields.status"),render:v=><Badge status={v||"active"}/>}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
@@ -358,13 +381,18 @@ function Doctors({ token }) {
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
             <Field label={t("fields.fullName")}><input style={inp} value={form.name||""} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></Field>
             <Field label={t("fields.specialization")}><input style={inp} value={form.specialization||""} onChange={e=>setForm(f=>({...f,specialization:e.target.value}))}/></Field>
-            <Field label={t("fields.qualification")}><input style={inp} value={form.qualification||""} onChange={e=>setForm(f=>({...f,qualification:e.target.value}))}/></Field>
-            <Field label={t("fields.department")}><input style={inp} value={form.department||""} onChange={e=>setForm(f=>({...f,department:e.target.value}))}/></Field>
+            <Field label={t("fields.qualification")}><SearchSelect value={form.qualification||""} valueLabel={form.qualification||""} options={opts?.qualifications||[]} placeholder={t("doctors.chooseQual")} noResults={t("common.noMatches")} ariaLabel={t("fields.qualification")} onChange={v=>setForm(f=>({...f,qualification:v}))}/></Field>
+            <Field label={t("fields.department")}><SearchSelect value={form.department||""} valueLabel={form.department||""} options={opts?.departments||[]} placeholder={t("doctors.chooseDept")} noResults={t("common.noMatches")} ariaLabel={t("fields.department")} onChange={v=>setForm(f=>({...f,department:v}))}/></Field>
             <Field label={t("fields.phone")}><input style={inp} value={form.phone||""} onChange={e=>setForm(f=>({...f,phone:e.target.value}))}/></Field>
             <Field label={t("fields.status")}><select style={inp} value={form.status||"active"} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="active">{t("status.active")}</option><option value="inactive">{t("status.inactive")}</option></select></Field>
           </div>
-          <Field label={t("fields.linkedUserId")}><input style={inp} value={form.linkedUserId||""} placeholder={t("doctors.linkedUserIdPlaceholder")} onChange={e=>setForm(f=>({...f,linkedUserId:e.target.value}))}/></Field>
-          <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> {form.id?t("doctors.updateBtn"):t("doctors.addBtn")}</button>
+          <Field label={t("doctors.linkedUser")}>
+            <select style={inp} value={form.linkedUserId||""} onChange={e=>setForm(f=>({...f,linkedUserId:e.target.value}))}>
+              <option value="">{t("doctors.noLinked")}</option>
+              {doctorUsers.map(u=><option key={u.id} value={u.id}>{u.name} ({u.username})</option>)}
+            </select>
+          </Field>
+          <LoadingButton style={{ ...btnP, marginTop:8 }} busyLabel={t("common.saving")} onClick={save}><Icon name="check" size={16}/> {form.id?t("doctors.updateBtn"):t("doctors.addBtn")}</LoadingButton>
         </Modal>
       )}
     </div>
@@ -374,18 +402,25 @@ function Doctors({ token }) {
 function Staff({ token }) {
   const { t } = useTranslation();
   const [data,setData]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
+  const opts=useOptions(token);
   const load=useCallback(()=>api("/staff","GET",null,token).then(setData).catch(()=>{}),[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(await withErr(()=>form.id?api(`/staff/${form.id}`,"PUT",form,token):api("/staff","POST",form,token))){ setModal(null);setForm({});load(); } };
+  const save=async()=>{
+    if(!String(form.name||"").trim()){ toast.error(t("staff.errName")); return false; }
+    if(!form.role){ toast.error(t("staff.errRole")); return false; }
+    const ok=await withErr(()=>form.id?api(`/staff/${form.id}`,"PUT",form,token):api("/staff","POST",form,token),t("staff.saved"));
+    if(ok){ setModal(null);setForm({});load(); } else return false;
+  };
   const del=async(id)=>{ if(confirm(t("staff.deleteConfirm"))){ await withErr(()=>api(`/staff/${id}`,"DELETE",null,token)); load(); } };
+  const roleOptions=[...(opts?.staffRoles||[])]; if(form.role&&!roleOptions.includes(form.role)) roleOptions.unshift(form.role);
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("staff.title")}</h2>
+      <div style={pageHead}>
+        <h2 style={h2s}>{t("staff.title")}</h2>
         <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("staff.add")}</button>
       </div>
-      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
-        <Table columns={[{key:"name",label:t("fields.name")},{key:"role",label:t("fields.role")},{key:"department",label:t("fields.department")},{key:"phone",label:t("fields.phone")},{key:"salary",label:t("fields.salary"),render:v=>v?`UGX ${parseInt(v).toLocaleString()}`:"—"},{key:"status",label:t("fields.status"),render:v=><Badge status={v||"active"}/>}]} data={data}
+      <div style={panel}>
+        <Table columns={[{key:"name",label:t("fields.name")},{key:"role",label:t("fields.role")},{key:"department",label:t("fields.department")},{key:"phone",label:t("fields.phone")},{key:"salary",label:t("fields.salary"),render:v=>v?formatMoney(v):"—"},{key:"status",label:t("fields.status"),render:v=><Badge status={v||"active"}/>}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
             <button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>,
@@ -396,13 +431,18 @@ function Staff({ token }) {
         <Modal title={form.id?t("staff.editTitle"):t("staff.addTitle")} onClose={()=>setModal(null)}>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
             <Field label={t("fields.fullName")}><input style={inp} value={form.name||""} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></Field>
-            <Field label={t("fields.role")}><input style={inp} value={form.role||""} placeholder={t("staff.rolePlaceholder")} onChange={e=>setForm(f=>({...f,role:e.target.value}))}/></Field>
-            <Field label={t("fields.department")}><input style={inp} value={form.department||""} onChange={e=>setForm(f=>({...f,department:e.target.value}))}/></Field>
+            <Field label={t("fields.role")}>
+              <select style={inp} value={form.role||""} aria-label={t("fields.role")} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+                <option value="">{t("staff.chooseRole")}</option>
+                {roleOptions.map(r=><option key={r} value={r}>{r}</option>)}
+              </select>
+            </Field>
+            <Field label={t("fields.department")}><SearchSelect value={form.department||""} valueLabel={form.department||""} options={opts?.departments||[]} placeholder={t("staff.chooseDept")} noResults={t("common.noMatches")} ariaLabel={t("fields.department")} onChange={v=>setForm(f=>({...f,department:v}))}/></Field>
             <Field label={t("fields.phone")}><input style={inp} value={form.phone||""} onChange={e=>setForm(f=>({...f,phone:e.target.value}))}/></Field>
-            <Field label={t("fields.salaryUgx")}><input style={inp} type="number" value={form.salary||""} onChange={e=>setForm(f=>({...f,salary:e.target.value}))}/></Field>
+            <Field label={t("fields.salaryUgx")}><input style={inp} type="number" min="0" value={form.salary||""} onChange={e=>setForm(f=>({...f,salary:e.target.value}))}/></Field>
             <Field label={t("fields.status")}><select style={inp} value={form.status||"active"} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="active">{t("status.active")}</option><option value="inactive">{t("status.inactive")}</option></select></Field>
           </div>
-          <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> {form.id?t("staff.updateBtn"):t("staff.addBtn")}</button>
+          <LoadingButton style={{ ...btnP, marginTop:8 }} busyLabel={t("common.saving")} onClick={save}><Icon name="check" size={16}/> {form.id?t("staff.updateBtn"):t("staff.addBtn")}</LoadingButton>
         </Modal>
       )}
     </div>
@@ -411,22 +451,27 @@ function Staff({ token }) {
 
 function Appointments({ token, user }) {
   const { t } = useTranslation();
-  const [data,setData]=useState([]); const [patients,setPatients]=useState([]); const [doctors,setDoctors]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
+  const [data,setData]=useState([]); const [doctors,setDoctors]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
   const canEdit=["admin","receptionist"].includes(user.role);
-  const load=useCallback(async()=>{ try{ const [a,p,d]=await Promise.all([api("/appointments","GET",null,token),api("/patients","GET",null,token),api("/doctors","GET",null,token)]); setData(a);setPatients(p);setDoctors(d); }catch{ /* surfaced elsewhere */ } },[token]);
+  const fetchPatients=useMemo(()=>patientFetcher(token),[token]);
+  const load=useCallback(async()=>{ try{ const [a,d]=await Promise.all([api("/appointments","GET",null,token),api("/doctors","GET",null,token)]); setData(a);setDoctors(d); }catch{ /* surfaced elsewhere */ } },[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(await withErr(()=>form.id?api(`/appointments/${form.id}`,"PUT",form,token):api("/appointments","POST",form,token))){ setModal(null);setForm({});load(); } };
+  const save=async()=>{
+    if(!form.patientId){ toast.error(t("appointments.errPatient")); return false; }
+    if(!form.date){ toast.error(t("appointments.errDate")); return false; }
+    const ok=await withErr(()=>form.id?api(`/appointments/${form.id}`,"PUT",form,token):api("/appointments","POST",form,token),t("appointments.saved"));
+    if(ok){ setModal(null);setForm({});load(); } else return false;
+  };
   const del=async(id)=>{ if(confirm(t("appointments.deleteConfirm"))){ await withErr(()=>api(`/appointments/${id}`,"DELETE",null,token)); load(); } };
-  const pName=id=>patients.find(p=>p.id===id)?.name||id;
-  const dName=id=>doctors.find(d=>d.id===id)?.name||id;
+  const doctorItems=useMemo(()=>doctors.map(d=>({value:d.id,label:`Dr. ${d.name}`,sub:[d.specialization,d.department].filter(Boolean).join(" · ")})),[doctors]);
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:800, color:"var(--brand-text-strong)" }}>{t("appointments.title")}</h2>
+      <div style={pageHead}>
+        <h2 style={h2s}>{t("appointments.title")}</h2>
         {canEdit&&<button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("appointments.schedule")}</button>}
       </div>
-      <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
-        <Table columns={[{key:"patientId",label:t("fields.patient"),render:v=>pName(v)},{key:"doctorId",label:t("fields.doctor"),render:v=>"Dr. "+dName(v)},{key:"date",label:t("fields.date")},{key:"time",label:t("fields.time")},{key:"reason",label:t("fields.reason")},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>}]} data={data}
+      <div style={panel}>
+        <Table columns={[{key:"patientName",label:t("fields.patient"),render:(v,row)=>v||row.patientId},{key:"doctorName",label:t("fields.doctor"),render:(v)=>v?"Dr. "+v:"—"},{key:"date",label:t("fields.date")},{key:"time",label:t("fields.time")},{key:"reason",label:t("fields.reason")},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
             canEdit&&<button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>,
@@ -435,15 +480,21 @@ function Appointments({ token, user }) {
       </div>
       {modal==="add"&&(
         <Modal title={form.id?t("appointments.editTitle"):t("appointments.scheduleTitle")} onClose={()=>setModal(null)}>
-          <Field label={t("fields.patient")}><select style={inp} value={form.patientId||""} onChange={e=>setForm(f=>({...f,patientId:e.target.value}))}><option value="">{t("appointments.selectPatient")}</option>{patients.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-          <Field label={t("fields.doctor")}><select style={inp} value={form.doctorId||""} onChange={e=>setForm(f=>({...f,doctorId:e.target.value}))}><option value="">{t("appointments.selectDoctor")}</option>{doctors.map(d=><option key={d.id} value={d.id}>Dr. {d.name} ({d.specialization})</option>)}</select></Field>
+          <Field label={t("fields.patient")}>
+            <SearchSelect value={form.patientId||""} valueLabel={form.patientName||""} fetcher={fetchPatients} allowClear={false} disabled={Boolean(form.id)} placeholder={t("appointments.searchPatient")} noResults={t("common.noMatches")} ariaLabel={t("fields.patient")}
+              onChange={(v,it)=>setForm(f=>({...f,patientId:v,patientName:it?.label||""}))}/>
+          </Field>
+          <Field label={t("fields.doctor")}>
+            <SearchSelect value={form.doctorId||""} valueLabel={form.doctorName?`Dr. ${form.doctorName}`:""} options={doctorItems} placeholder={t("appointments.chooseDoctor")} noResults={t("common.noMatches")} ariaLabel={t("fields.doctor")}
+              onChange={(v,it)=>setForm(f=>({...f,doctorId:v,doctorName:it?it.label.replace(/^Dr\. /,""):""}))}/>
+          </Field>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
             <Field label={t("fields.date")}><input style={inp} type="date" value={form.date||""} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/></Field>
             <Field label={t("fields.time")}><input style={inp} type="time" value={form.time||""} onChange={e=>setForm(f=>({...f,time:e.target.value}))}/></Field>
           </div>
           <Field label={t("fields.reason")}><input style={inp} value={form.reason||""} onChange={e=>setForm(f=>({...f,reason:e.target.value}))}/></Field>
           <Field label={t("fields.status")}><select style={inp} value={form.status||"scheduled"} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="scheduled">{t("status.scheduled")}</option><option value="completed">{t("status.completed")}</option><option value="cancelled">{t("status.cancelled")}</option></select></Field>
-          <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> {form.id?t("appointments.updateBtn"):t("appointments.scheduleBtn")}</button>
+          <LoadingButton style={{ ...btnP, marginTop:8 }} busyLabel={t("common.saving")} onClick={save}><Icon name="check" size={16}/> {form.id?t("appointments.updateBtn"):t("appointments.scheduleBtn")}</LoadingButton>
         </Modal>
       )}
     </div>
@@ -452,13 +503,17 @@ function Appointments({ token, user }) {
 
 function MedicalRecords({ token, user }) {
   const { t, i18n } = useTranslation();
-  const [data,setData]=useState([]); const [patients,setPatients]=useState([]); const [doctors,setDoctors]=useState([]); const [inventory,setInventory]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({medicinesUsed:[]});
+  const [data,setData]=useState([]); const [doctors,setDoctors]=useState([]); const [inventory,setInventory]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({medicinesUsed:[]});
   const canEdit=["admin","doctor"].includes(user.role);
-  const load=useCallback(async()=>{ try{ const [r,p,d,inv]=await Promise.all([api("/records","GET",null,token),api("/patients","GET",null,token),api("/doctors","GET",null,token),api("/inventory","GET",null,token).catch(()=>[])]); setData(r);setPatients(p);setDoctors(d);setInventory(inv); }catch{ /* surfaced elsewhere */ } },[token]);
+  const fetchPatients=useMemo(()=>patientFetcher(token),[token]);
+  const load=useCallback(async()=>{ try{ const [r,d,inv]=await Promise.all([api("/records","GET",null,token),api("/doctors","GET",null,token).catch(()=>[]),api("/inventory","GET",null,token).catch(()=>[])]); setData(r);setDoctors(d);setInventory(inv); }catch{ /* surfaced elsewhere */ } },[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(await withErr(()=>form.id?api(`/records/${form.id}`,"PUT",form,token):api("/records","POST",form,token))){ setModal(null);setForm({medicinesUsed:[]});load(); } };
-  const pName=id=>patients.find(p=>p.id===id)?.name||id;
-  const dName=id=>doctors.find(d=>d.id===id)?.name||id;
+  const save=async()=>{
+    if(!form.patientId){ toast.error(t("records.errPatient")); return false; }
+    const ok=await withErr(()=>form.id?api(`/records/${form.id}`,"PUT",form,token):api("/records","POST",form,token),t("records.saved"));
+    if(ok){ setModal(null);setForm({medicinesUsed:[]});load(); } else return false;
+  };
+  const doctorItems=useMemo(()=>doctors.map(d=>({value:d.id,label:`Dr. ${d.name}`,sub:d.specialization||""})),[doctors]);
   const toggleMed=id=>{ const cur=form.medicinesUsed||[]; setForm(f=>({...f,medicinesUsed:cur.includes(id)?cur.filter(m=>m!==id):[...cur,id]})); };
   return (
     <div>
@@ -467,14 +522,14 @@ function MedicalRecords({ token, user }) {
         {canEdit&&<button style={btnP} onClick={()=>{setForm({medicinesUsed:[]});setModal("add");}}><Icon name="plus" size={16}/> {t("records.add")}</button>}
       </div>
       <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
-        <Table columns={[{key:"patientId",label:t("fields.patient"),render:v=>pName(v)},{key:"doctorId",label:t("fields.doctor"),render:v=>"Dr. "+dName(v)},{key:"diagnosis",label:t("fields.diagnosis")},{key:"treatment",label:t("fields.treatment")},{key:"medicinesUsed",label:t("fields.medicinesUsed"),render:v=>v&&v.length?v.map(id=>inventory.find(i=>i.id===id)?.name||id).join(", "):"—"},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={data}
+        <Table columns={[{key:"patientName",label:t("fields.patient"),render:(v,row)=>v||row.patientId},{key:"doctorName",label:t("fields.doctor"),render:v=>v?"Dr. "+v:"—"},{key:"diagnosis",label:t("fields.diagnosis")},{key:"treatment",label:t("fields.treatment")},{key:"medicinesUsed",label:t("fields.medicinesUsed"),render:v=>v&&v.length?v.map(id=>inventory.find(i=>i.id===id)?.name||id).join(", "):"—"},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={data}
           actions={canEdit?row=>[<button key="e" style={btnE} onClick={()=>{setForm({...row,medicinesUsed:row.medicinesUsed||[]});setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>]:null}
         />
       </div>
       {modal==="add"&&(
         <Modal title={form.id?t("records.editTitle"):t("records.addTitle")} onClose={()=>setModal(null)}>
-          <Field label={t("fields.patient")}><select style={inp} value={form.patientId||""} onChange={e=>setForm(f=>({...f,patientId:e.target.value}))}><option value="">{t("common.select")}</option>{patients.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-          <Field label={t("fields.doctor")}><select style={inp} value={form.doctorId||""} onChange={e=>setForm(f=>({...f,doctorId:e.target.value}))}><option value="">{t("common.select")}</option>{doctors.map(d=><option key={d.id} value={d.id}>Dr. {d.name}</option>)}</select></Field>
+          <Field label={t("fields.patient")}><SearchSelect value={form.patientId||""} valueLabel={form.patientName||""} fetcher={fetchPatients} allowClear={false} disabled={Boolean(form.id)} placeholder={t("appointments.searchPatient")} noResults={t("common.noMatches")} ariaLabel={t("fields.patient")} onChange={(v,it)=>setForm(f=>({...f,patientId:v,patientName:it?.label||""}))}/></Field>
+          <Field label={t("fields.doctor")}><SearchSelect value={form.doctorId||""} valueLabel={form.doctorName?`Dr. ${form.doctorName}`:""} options={doctorItems} placeholder={t("appointments.chooseDoctor")} noResults={t("common.noMatches")} ariaLabel={t("fields.doctor")} onChange={(v,it)=>setForm(f=>({...f,doctorId:v,doctorName:it?it.label.replace(/^Dr\. /,""):""}))}/></Field>
           <Field label={t("fields.diagnosis")}><input style={inp} value={form.diagnosis||""} onChange={e=>setForm(f=>({...f,diagnosis:e.target.value}))}/></Field>
           <Field label={t("fields.treatment")}><textarea style={{ ...inp, height:70, resize:"vertical" }} value={form.treatment||""} onChange={e=>setForm(f=>({...f,treatment:e.target.value}))}/></Field>
           <Field label={t("fields.prescription")}><textarea style={{ ...inp, height:60, resize:"vertical" }} value={form.prescription||""} onChange={e=>setForm(f=>({...f,prescription:e.target.value}))}/></Field>
@@ -492,7 +547,7 @@ function MedicalRecords({ token, user }) {
                 </div>
             }
           </div>
-          <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> {form.id?t("records.updateBtn"):t("records.saveBtn")}</button>
+          <LoadingButton style={{ ...btnP, marginTop:8 }} busyLabel={t("common.saving")} onClick={save}><Icon name="check" size={16}/> {form.id?t("records.updateBtn"):t("records.saveBtn")}</LoadingButton>
         </Modal>
       )}
     </div>
@@ -505,7 +560,7 @@ function Pharmacy({ token, user }) {
   const canEdit=["admin","pharmacist"].includes(user.role);
   const load=useCallback(()=>api("/inventory","GET",null,token).then(setData).catch(()=>{}),[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(await withErr(()=>form.id?api(`/inventory/${form.id}`,"PUT",form,token):api("/inventory","POST",form,token))){ setModal(null);setForm({});load(); } };
+  const save=async()=>{ const ok=await withErr(()=>form.id?api(`/inventory/${form.id}`,"PUT",form,token):api("/inventory","POST",form,token),t("pharmacy.saved")); if(ok){ setModal(null);setForm({});load(); } else return false; };
   const del=async(id)=>{ if(confirm(t("pharmacy.removeConfirm"))){ await withErr(()=>api(`/inventory/${id}`,"DELETE",null,token)); load(); } };
   const CATEGORIES=[["Medicine",t("pharmacy.categories.medicine")],["Equipment",t("pharmacy.categories.equipment")],["Supplies",t("pharmacy.categories.supplies")],["Lab Reagent",t("pharmacy.categories.labReagent")]];
   const catLabel=v=>CATEGORIES.find(c=>c[0]===v)?.[1]||v;
@@ -517,7 +572,7 @@ function Pharmacy({ token, user }) {
       </div>
       {user.role==="doctor"&&<div style={{ background:"var(--info-bg)", border:"1px solid var(--info-border)", borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:"var(--info)" }}>{t("pharmacy.doctorViewNote")}</div>}
       <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
-        <Table columns={[{key:"name",label:t("fields.item")},{key:"category",label:t("fields.category"),render:v=>catLabel(v)},{key:"quantity",label:t("fields.stock"),render:(v,row)=><span style={{ color:parseInt(v)<10?"var(--danger)":"#333", fontWeight:parseInt(v)<10?700:400 }}>{v} {row.unit}</span>},{key:"unitPrice",label:t("fields.unitPrice"),render:v=>`UGX ${parseInt(v||0).toLocaleString()}`},{key:"expiryDate",label:t("fields.expiry")},{key:"supplier",label:t("fields.supplier")}]} data={data}
+        <Table columns={[{key:"name",label:t("fields.item")},{key:"category",label:t("fields.category"),render:v=>catLabel(v)},{key:"quantity",label:t("fields.stock"),render:(v,row)=><span style={{ color:parseInt(v)<10?"var(--danger)":"#333", fontWeight:parseInt(v)<10?700:400 }}>{v} {row.unit}</span>},{key:"unitPrice",label:t("fields.unitPrice"),render:v=>formatMoney(v)},{key:"expiryDate",label:t("fields.expiry")},{key:"supplier",label:t("fields.supplier")}]} data={data}
           actions={canEdit?row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
             <button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>,
@@ -535,7 +590,7 @@ function Pharmacy({ token, user }) {
             <Field label={t("fields.expiryDate")}><input style={inp} type="date" value={form.expiryDate||""} onChange={e=>setForm(f=>({...f,expiryDate:e.target.value}))}/></Field>
           </div>
           <Field label={t("fields.supplier")}><input style={inp} value={form.supplier||""} onChange={e=>setForm(f=>({...f,supplier:e.target.value}))}/></Field>
-          <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> {form.id?t("pharmacy.updateBtn"):t("pharmacy.addBtn")}</button>
+          <LoadingButton style={{ ...btnP, marginTop:8 }} busyLabel={t("common.saving")} onClick={save}><Icon name="check" size={16}/> {form.id?t("pharmacy.updateBtn"):t("pharmacy.addBtn")}</LoadingButton>
         </Modal>
       )}
     </div>
@@ -544,21 +599,24 @@ function Pharmacy({ token, user }) {
 
 function Billing({ token }) {
   const { t, i18n } = useTranslation();
-  const [bills,setBills]=useState([]); const [patients,setPatients]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({items:[]});
-  const load=useCallback(async()=>{ try{ const [b,p]=await Promise.all([api("/bills","GET",null,token),api("/patients","GET",null,token)]); setBills(b);setPatients(p); }catch{ /* surfaced elsewhere */ } },[token]);
+  const [bills,setBills]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({items:[]});
+  const fetchPatients=useMemo(()=>patientFetcher(token),[token]);
+  const load=useCallback(async()=>{ try{ setBills(await api("/bills","GET",null,token)); }catch{ /* surfaced elsewhere */ } },[token]);
   useEffect(()=>{load();},[load]);
   const addItem=()=>setForm(f=>({...f,items:[...(f.items||[]),{desc:"",amount:""}]}));
   const updItem=(i,k,v)=>setForm(f=>({...f,items:f.items.map((it,idx)=>idx===i?{...it,[k]:v}:it)}));
   const total=(form.items||[]).reduce((s,it)=>s+(parseFloat(it.amount)||0),0);
-  const pName=id=>patients.find(p=>p.id===id)?.name||id;
   const save=async()=>{
-    try{ await api("/bills","POST",{...form,totalAmount:total},token); setModal(null);setForm({items:[]}); load(); }
-    catch(e){ alert(apiErrorMessage(e)); }
+    if(!form.patientId){ toast.error(t("billing.errPatient")); return false; }
+    const items=(form.items||[]).filter(it=>parseFloat(it.amount)>0);
+    if(!items.length){ toast.error(t("billing.errItems")); return false; }
+    const ok=await withErr(()=>api("/bills","POST",{patientId:form.patientId,notes:form.notes,items,totalAmount:items.reduce((a,it)=>a+(parseFloat(it.amount)||0),0)},token),t("billing.saved"));
+    if(ok){ setModal(null);setForm({items:[]}); load(); } else return false;
   };
   const markPaid=async(bill)=>{
     const due=bill.remainingAmount ?? bill.totalAmount ?? 0;
-    try{ await api("/transactions","POST",{billId:bill.id,amount:due,patientId:bill.patientId,method:"Cash",note:t("billing.manualPayment")},token); load(); }
-    catch(e){ alert(apiErrorMessage(e)); }
+    const ok=await withErr(()=>api("/transactions","POST",{billId:bill.id,amount:due,patientId:bill.patientId,method:"Cash",note:t("billing.manualPayment")},token),t("billing.paid"));
+    if(ok) load(); else return false;
   };
   return (
     <div>
@@ -567,26 +625,26 @@ function Billing({ token }) {
         <button style={btnP} onClick={()=>{setForm({items:[]});setModal("add");}}><Icon name="plus" size={16}/> {t("billing.create")}</button>
       </div>
       <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
-        <Table columns={[{key:"billNumber",label:t("fields.billNumber")},{key:"patientId",label:t("fields.patient"),render:v=>pName(v)},{key:"totalAmount",label:t("fields.total"),render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={bills}
-          actions={row=>[row.status!=="paid"&&<button key="p" style={btnG} onClick={()=>markPaid(row)}><Icon name="check" size={13}/> {t("billing.markPaid")}</button>].filter(Boolean)}
+        <Table columns={[{key:"billNumber",label:t("fields.billNumber")},{key:"patientName",label:t("fields.patient"),render:(v,row)=>v||row.patientId},{key:"totalAmount",label:t("fields.total"),render:v=>formatMoney(parseFloat(v||0))},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={bills}
+          actions={row=>[row.status!=="paid"&&<LoadingButton key="p" style={btnG} busyLabel={t("common.saving")} onClick={()=>markPaid(row)}><Icon name="check" size={13}/> {t("billing.markPaid")}</LoadingButton>].filter(Boolean)}
         />
       </div>
       {modal==="add"&&(
         <Modal title={t("billing.createTitle")} onClose={()=>setModal(null)}>
-          <Field label={t("fields.patient")}><select style={inp} value={form.patientId||""} onChange={e=>setForm(f=>({...f,patientId:e.target.value}))}><option value="">{t("common.select")}</option>{patients.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+          <Field label={t("fields.patient")}><SearchSelect value={form.patientId||""} fetcher={fetchPatients} allowClear={false} placeholder={t("appointments.searchPatient")} noResults={t("common.noMatches")} ariaLabel={t("fields.patient")} onChange={v=>setForm(f=>({...f,patientId:v}))}/></Field>
           <div style={{ marginBottom:12 }}>
             <label style={{ fontSize:12, fontWeight:600, color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:0.5 }}>{t("billing.billItems")}</label>
             {(form.items||[]).map((item,i)=>(
               <div key={i} style={{ display:"flex", gap:8, marginTop:8 }}>
                 <input style={{ ...inp, flex:2 }} placeholder={t("billing.description")} value={item.desc} onChange={e=>updItem(i,"desc",e.target.value)}/>
-                <input style={{ ...inp, flex:1 }} type="number" placeholder="UGX" value={item.amount} onChange={e=>updItem(i,"amount",e.target.value)}/>
+                <input style={{ ...inp, flex:1 }} type="number" min="0" placeholder={getCurrency()} aria-label={t("billing.amountPh")} value={item.amount} onChange={e=>updItem(i,"amount",e.target.value)}/>
               </div>
             ))}
-            <button onClick={addItem} style={{ marginTop:10, background:"var(--brand-tint-light)", border:"1px solid var(--brand-tint)", borderRadius:8, padding:"8px 14px", fontSize:13, cursor:"pointer" }}>+ {t("billing.addItem")}</button>
+            <button type="button" onClick={addItem} style={{ marginTop:10, background:"var(--brand-tint-light)", border:"1px solid var(--brand-tint)", borderRadius:8, padding:"8px 14px", fontSize:13, cursor:"pointer" }}>+ {t("billing.addItem")}</button>
           </div>
-          <div style={{ background:"var(--brand-tint-faint)", borderRadius:8, padding:"12px 16px", marginBottom:16, fontWeight:700, fontSize:16 }}>{t("billing.totalLabel",{amount:total.toLocaleString()})}</div>
+          <div style={{ background:"var(--brand-tint-faint)", borderRadius:8, padding:"12px 16px", marginBottom:16, fontWeight:700, fontSize:16 }}>{t("billing.totalLabel",{amount:formatMoney(total)})}</div>
           <Field label={t("fields.notes")}><textarea style={{ ...inp, height:60 }} value={form.notes||""} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></Field>
-          <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> {t("billing.generateBtn")}</button>
+          <LoadingButton style={{ ...btnP, marginTop:8 }} busyLabel={t("common.saving")} onClick={save}><Icon name="check" size={16}/> {t("billing.generateBtn")}</LoadingButton>
         </Modal>
       )}
     </div>
@@ -595,13 +653,25 @@ function Billing({ token }) {
 
 function Transactions({ token }) {
   const { t, i18n } = useTranslation();
-  const [data,setData]=useState([]); const [patients,setPatients]=useState([]); const [bills,setBills]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
-  const load=useCallback(async()=>{ try{ const [tx,p,b]=await Promise.all([api("/transactions","GET",null,token),api("/patients","GET",null,token),api("/bills","GET",null,token)]); setData(tx);setPatients(p);setBills(b); }catch{ /* surfaced elsewhere */ } },[token]);
+  const [data,setData]=useState([]); const [bills,setBills]=useState([]); const [modal,setModal]=useState(null); const [form,setForm]=useState({});
+  const fetchPatients=useMemo(()=>patientFetcher(token),[token]);
+  const load=useCallback(async()=>{ try{ const [tx,b]=await Promise.all([api("/transactions","GET",null,token),api("/bills","GET",null,token)]); setData(tx);setBills(b); }catch{ /* surfaced elsewhere */ } },[token]);
   useEffect(()=>{load();},[load]);
-  const save=async()=>{ if(await withErr(()=>api("/transactions","POST",form,token))){ setModal(null);setForm({});load(); } };
+  const save=async()=>{
+    if(!(parseFloat(form.amount)>0)){ toast.error(t("transactions.errAmount")); return false; }
+    if(!form.method){ toast.error(t("transactions.errMethod")); return false; }
+    const ok=await withErr(()=>api("/transactions","POST",{...form,currency:payCur},token),t("transactions.saved"));
+    if(ok){ setModal(null);setForm({});load(); } else return false;
+  };
   const del=async(id)=>{ if(confirm(t("transactions.deleteConfirm"))){ await withErr(()=>api(`/transactions/${id}`,"DELETE",null,token)); load(); } };
-  const pName=id=>patients.find(p=>p.id===id)?.name||id;
   const total=data.reduce((s,tx)=>s+(parseFloat(tx.amount)||0),0);
+  // Mixed currencies: the bill and totals stay in the hospital's main currency; the patient may pay in any accepted one.
+  const base=getCurrency(); const accepted=getAcceptedCurrencies(); const rates=getPayRates();
+  const payCur=form.currency||base;
+  const rateText=(b,c,r)=>{ const v=rateView(b,c,r); return `1 ${v.strong} = ${Number(v.value).toLocaleString()} ${v.weak}`; };
+  const rateOf=c=>c===base?1:rates[c];
+  const convert=(amt,c)=>{ const v=(Number(amt)||0)*rateOf(c); return c==="USD"||c==="EUR"?Math.round(v*100)/100:Math.ceil(v); };
+  const equivalent=(parseFloat(form.amount)||0)/(rateOf(payCur)||1);
   const METHODS=[["Cash",t("transactions.methods.cash")],["Mobile Money",t("transactions.methods.mobileMoney")],["Bank Transfer",t("transactions.methods.bankTransfer")],["Insurance",t("transactions.methods.insurance")],["Card",t("transactions.methods.card")]];
   const methodLabel=v=>METHODS.find(m=>m[0]===v)?.[1]||v;
   return (
@@ -612,23 +682,30 @@ function Transactions({ token }) {
       </div>
       <div style={{ background:"linear-gradient(135deg,var(--brand),var(--info))", borderRadius:16, padding:"20px 24px", marginBottom:20, color:"#fff" }}>
         <div style={{ fontSize:13, opacity:0.7 }}>{t("transactions.totalRevenueCollected")}</div>
-        <div style={{ fontSize:32, fontWeight:800, marginTop:4 }}>UGX {total.toLocaleString()}</div>
+        <div style={{ fontSize:32, fontWeight:800, marginTop:4 }}>{formatMoney(total)}</div>
       </div>
       <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
-        <Table columns={[{key:"txRef",label:t("fields.refNumber")},{key:"patientId",label:t("fields.patient"),render:v=>pName(v)},{key:"amount",label:t("fields.amount"),render:v=>`UGX ${parseFloat(v||0).toLocaleString()}`},{key:"method",label:t("fields.method"),render:v=>methodLabel(v)},{key:"recordedBy",label:t("fields.recordedBy")},{key:"note",label:t("fields.note")},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={data}
+        <Table columns={[{key:"txRef",label:t("fields.refNumber")},{key:"patientName",label:t("fields.patient"),render:(v,row)=>v||row.patientId||"—"},{key:"amount",label:t("fields.amount"),render:(v,row)=><span>{formatMoney(parseFloat(v||0))}{row.tenderedCurrency&&row.tenderedCurrency!==base&&<div style={{ fontSize:11, color:"var(--text-faint)" }}>{t("transactions.paidIn",{amount:formatMoney(row.tenderedAmount,row.tenderedCurrency),rate:rateText(base,row.tenderedCurrency,row.exchangeRate)})}</div>}</span>},{key:"method",label:t("fields.method"),render:v=>methodLabel(v)},{key:"recordedBy",label:t("fields.recordedBy")},{key:"note",label:t("fields.note")},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={data}
           actions={row=>[<button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>]}
         />
       </div>
       {modal==="add"&&(
         <Modal title={t("transactions.recordTitle")} onClose={()=>setModal(null)}>
-          <Field label={t("fields.patient")}><select style={inp} value={form.patientId||""} onChange={e=>setForm(f=>({...f,patientId:e.target.value}))}><option value="">{t("common.select")}</option>{patients.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-          <Field label={t("transactions.linkToBill")}><select style={inp} value={form.billId||""} onChange={e=>setForm(f=>({...f,billId:e.target.value}))}><option value="">{t("common.none")}</option>{bills.filter(b=>b.status!=="paid").map(b=><option key={b.id} value={b.id}>{b.billNumber} — UGX {parseFloat(b.remainingAmount ?? b.totalAmount ?? 0).toLocaleString()}</option>)}</select></Field>
+          <Field label={t("fields.patient")}><SearchSelect value={form.patientId||""} fetcher={fetchPatients} placeholder={t("appointments.searchPatient")} noResults={t("common.noMatches")} ariaLabel={t("fields.patient")} onChange={v=>setForm(f=>({...f,patientId:v}))}/></Field>
+          <Field label={t("transactions.linkToBill")}><select style={inp} value={form.billId||""} onChange={e=>{ const b=bills.find(x=>x.id===e.target.value); setForm(f=>({...f,billId:e.target.value,...(b?{patientId:b.patientId,amount:f.amount||convert(b.remainingAmount||b.totalAmount,f.currency||base)}:{})})); }}><option value="">{t("common.none")}</option>{bills.filter(b=>b.status!=="paid").map(b=><option key={b.id} value={b.id}>{b.billNumber}{b.patientName?` · ${b.patientName}`:""} — {formatMoney(parseFloat(b.remainingAmount ?? b.totalAmount ?? 0))}</option>)}</select></Field>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-            <Field label={t("fields.amountUgx")}><input style={inp} type="number" value={form.amount||""} onChange={e=>setForm(f=>({...f,amount:e.target.value}))}/></Field>
+            {accepted.length>1&&<Field label={t("transactions.payCurrency")}>
+              <select style={inp} value={payCur} aria-label={t("transactions.payCurrency")} onChange={e=>{ const c=e.target.value; const b=bills.find(x=>x.id===form.billId); setForm(f=>({...f,currency:c,...(b?{amount:convert(b.remainingAmount||b.totalAmount,c)}:{})})); }}>
+                {accepted.map(c=><option key={c} value={c}>{c}{c===base?` (${t("transactions.mainCur")})`:""}</option>)}
+              </select>
+            </Field>}
+            <Field label={`${t("fields.amount")} (${payCur})`}><input style={inp} type="number" min="0" aria-label={t("fields.amount")} value={form.amount||""} onChange={e=>setForm(f=>({...f,amount:e.target.value}))}/>
+              {payCur!==base&&equivalent>0&&<div style={{ fontSize:12, color:"var(--text-muted)", marginTop:4 }}>{t("transactions.equals",{amount:formatMoney(equivalent),rate:rateText(base,payCur,rates[payCur])})}</div>}
+            </Field>
             <Field label={t("fields.method")}><select style={inp} value={form.method||""} onChange={e=>setForm(f=>({...f,method:e.target.value}))}><option value="">{t("common.select")}</option>{METHODS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Field>
           </div>
           <Field label={t("fields.note")}><input style={inp} value={form.note||""} onChange={e=>setForm(f=>({...f,note:e.target.value}))}/></Field>
-          <button style={{ ...btnP, marginTop:8 }} onClick={save}><Icon name="check" size={16}/> {t("transactions.recordBtn")}</button>
+          <LoadingButton style={{ ...btnP, marginTop:8 }} busyLabel={t("common.saving")} onClick={save}><Icon name="check" size={16}/> {t("transactions.recordBtn")}</LoadingButton>
         </Modal>
       )}
     </div>
@@ -654,7 +731,7 @@ function Overview({ token }) {
         <StatCard label={t("overview.totalAppointments")} value={stats.totalAppointments} color="var(--warn)" icon="appointments" />
         <StatCard label={t("overview.totalRecords")} value={stats.totalRecords} color="var(--info)" icon="records" />
         <StatCard label={t("dashboard.pendingBills")} value={stats.pendingBills} color="var(--danger)" icon="billing" />
-        <StatCard label={t("dashboard.totalRevenue")} value={`UGX ${(stats.totalRevenue||0).toLocaleString()}`} color="var(--info)" icon="transactions" />
+        {Object.entries(stats.revenueByCurrency||{}).map(([cur,amt])=><StatCard key={cur} label={`${t("dashboard.totalRevenue")} · ${cur}`} value={formatMoney(amt,cur)} color="var(--info)" icon="transactions" />)}
         <StatCard label={t("dashboard.lowStock")} value={stats.lowStockItems} color="var(--danger)" icon="pharmacy" />
         <StatCard label={t("overview.auditToday")} value={stats.auditToday} color="var(--purple)" icon="activity" />
         <StatCard label={t("overview.auditTotal")} value={stats.auditTotal} color="var(--text-muted)" icon="activity" />
@@ -935,11 +1012,12 @@ export default function App() {
   const platform = usePlatform();
   const [token,setToken]=useState(()=>localStorage.getItem("hms_token"));
   const [user,setUser]=useState(()=>{ try{return JSON.parse(localStorage.getItem("hms_user"));}catch{return null;} });
-  const [hospital,setHospital]=useState(()=>{ try{return JSON.parse(localStorage.getItem("hms_hospital"));}catch{return null;} });
+  const [hospital,setHospital]=useState(()=>{ try{ const h=JSON.parse(localStorage.getItem("hms_hospital")); setCurrency(h?.currency); setPayCurrencies(h?.settings); return h; }catch{return null;} });
   const [active,setActive]=useState(()=>{ try{ return JSON.parse(localStorage.getItem("hms_user"))?.role==="superadmin"?"hospitals":"dashboard"; }catch{ return "dashboard"; } });
-  const [sidebarOpen,setSidebarOpen]=useState(true);
+  const [sidebarOpen,setSidebarOpen]=useState(()=>typeof window==="undefined"||window.innerWidth>=900); // phones start with the slim menu
+  const isSmall=typeof window!=="undefined"&&window.innerWidth<700;
 
-  const saveHospital=h=>{ setHospital(h||null); try{ h?localStorage.setItem("hms_hospital",JSON.stringify(h)):localStorage.removeItem("hms_hospital"); }catch{ /* storage unavailable */ } };
+  const saveHospital=h=>{ setCurrency(h?.currency); setPayCurrencies(h?.settings); setHospital(h||null); try{ h?localStorage.setItem("hms_hospital",JSON.stringify(h)):localStorage.removeItem("hms_hospital"); }catch{ /* storage unavailable */ } };
   const handleLogin=(tok,u,h)=>{ localStorage.setItem("hms_token",tok); localStorage.setItem("hms_user",JSON.stringify(u)); saveHospital(h); setToken(tok);setUser(u);setActive(u.role==="superadmin"?"hospitals":"dashboard"); };
   const handleLogout=useCallback(()=>{ localStorage.removeItem("hms_token"); localStorage.removeItem("hms_user"); localStorage.removeItem("hms_hospital"); setToken(null);setUser(null);setHospital(null); },[]);
 
@@ -955,7 +1033,7 @@ export default function App() {
     if(!token) return;
     api("/session","GET",null,token)
       .then(s=>saveHospital(s.hospital))
-      .catch(e=>{ if(/suspended/i.test(apiErrorMessage(e,""))){ alert(t("login.suspended")); handleLogout(); } });
+      .catch(e=>{ if(apiErrorCode(e)==="SUSPENDED"||/suspended/i.test(apiErrorMessage(e,""))){ toast.error(t("login.suspended")); handleLogout(); } });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[token]);
 
@@ -1001,7 +1079,7 @@ export default function App() {
         </div>
         <nav style={{ flex:1, padding:"12px 8px", overflowY:"auto" }}>
           {modules.map(m=>(
-            <button key={m.key} onClick={()=>setActive(m.key)} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"11px 12px", borderRadius:10, border:"none", cursor:"pointer", marginBottom:4, background:active===m.key?"rgba(255,255,255,0.2)":"transparent", color:active===m.key?"#ffffff":"rgba(255,255,255,0.7)", fontWeight:active===m.key?700:400, fontSize:14, textAlign:"start" }}>
+            <button key={m.key} onClick={()=>{ setActive(m.key); if(isSmall) setSidebarOpen(false); }} style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"11px 12px", borderRadius:10, border:"none", cursor:"pointer", marginBottom:4, background:active===m.key?"rgba(255,255,255,0.2)":"transparent", color:active===m.key?"#ffffff":"rgba(255,255,255,0.7)", fontWeight:active===m.key?700:400, fontSize:14, textAlign:"start" }}>
               <span style={{ flexShrink:0 }}><Icon name={m.icon} size={18}/></span>
               {sidebarOpen&&<span style={{ whiteSpace:"nowrap" }}>{t(`nav.${m.navKey}`)}</span>}
             </button>
@@ -1019,20 +1097,20 @@ export default function App() {
         </div>
       </div>
       <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0 }}>
-        <div style={{ background:"var(--surface)", borderBottom:"1px solid var(--brand-tint)", padding:"0 24px", height:60, display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", position:"sticky", top:0, zIndex:100 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+        <div style={{ background:"var(--surface)", borderBottom:"1px solid var(--brand-tint)", padding:isSmall?"0 12px":"0 24px", height:60, display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", position:"sticky", top:0, zIndex:100 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, minWidth:0 }}>
             <button onClick={()=>setSidebarOpen(s=>!s)} style={{ background:"var(--brand-tint-light)", border:"none", borderRadius:8, padding:8, cursor:"pointer", color:"var(--brand-text)" }}><Icon name="dashboard" size={16}/></button>
-            <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"var(--brand-text-strong)" }}>{activeLabel}</h2>
+            <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:"var(--brand-text-strong)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{activeLabel}</h2>
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:isSmall?6:12, flexShrink:0 }}>
             <ThemeToggle />
             <LanguageSwitcher />
-            <span style={{ fontSize:13, color:"var(--text-muted)" }}>{new Date().toLocaleDateString(i18n.language,{weekday:"short",year:"numeric",month:"short",day:"numeric"})}</span>
-            <div style={{ width:34, height:34, background:roleColor, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:700, fontSize:14 }}>{user.name?.charAt(0).toUpperCase()}</div>
+            {!isSmall&&<span style={{ fontSize:13, color:"var(--text-muted)" }}>{new Date().toLocaleDateString(i18n.language,{weekday:"short",year:"numeric",month:"short",day:"numeric"})}</span>}
+            {!isSmall&&<div style={{ width:34, height:34, background:roleColor, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:700, fontSize:14 }}>{user.name?.charAt(0).toUpperCase()}</div>}
           </div>
         </div>
-        <div style={{ flex:1, padding:28, overflowY:"auto" }}>
-          <ActiveComponent token={token} user={user} hospital={hospital}/>
+        <div style={{ flex:1, padding:isSmall?14:28, overflowY:"auto", minWidth:0 }}>
+          <ActiveComponent token={token} user={user} hospital={hospital} onHospitalChanged={patch=>saveHospital({...hospital,...patch})}/>
         </div>
       </div>
     </div>

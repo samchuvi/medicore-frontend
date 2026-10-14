@@ -3,7 +3,7 @@
 // the Hospitals screen. Backend: PUT /platform (read is public: /public/platform).
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, apiErrorMessage, addTranslations, shrinkImage, Icon, Field, inp, btnP, btnE, btnG } from "../shared";
+import { api, apiErrorMessage, addTranslations, shrinkImage, Icon, Field, inp, btnP, btnE, btnG, LoadingButton } from "../shared";
 import { usePlatform, setPlatform } from "../platform";
 import { buildPalette } from "../theme";
 import { PLATFORM_NAME, PLATFORM_COLOR } from "../config";
@@ -37,7 +37,7 @@ export default function PlatformSettings({ token }) {
   const [logo, setLogo] = useState(current.logo);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
   const pal = buildPalette(color);
 
   const pick = async (e) => {
@@ -81,7 +81,7 @@ export default function PlatformSettings({ token }) {
           {err && <div role="alert" style={{ background: "var(--danger-bg)", color: "var(--danger)", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12 }}>{err}</div>}
           {ok && <div role="status" style={{ background: "var(--brand-tint-light)", color: "var(--brand-text)", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12 }}>{ok}</div>}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button style={{ ...btnP, opacity: busy ? 0.7 : 1 }} disabled={busy} onClick={save}><Icon name="check" size={16} /> {busy ? t("plat.saving") : t("plat.save")}</button>
+            <LoadingButton style={btnP} busyLabel={t("plat.saving")} onClick={save}><Icon name="check" size={16} /> {t("plat.save")}</LoadingButton>
             <button style={btnG} onClick={reset}>{t("plat.reset")}</button>
           </div>
         </div>

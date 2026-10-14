@@ -1,11 +1,11 @@
 // Inpatient care: wards with beds, admitting patients, daily progress notes and
 // discharge (which raises a bed-days bill when the hospital has billing on).
 // Backend: /wards, /admissions, /admissions/:id/notes, /admissions/:id/discharge.
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { api, apiErrorMessage, formatDateTime, addTranslations, Icon, Modal, Field, inp, btnP, btnG, btnE, Badge, StatCard, Table } from "../shared";
+import { api, apiErrorMessage, formatDateTime, addTranslations, Icon, Modal, Field, inp, btnP, btnG, btnE, Badge, StatCard, Table, formatMoney, LoadingButton, SearchSelect, patientFetcher, getCurrency } from "../shared";
 
-const money = (n) => `UGX ${(Number(n) || 0).toLocaleString()}`;
+const money = (n, c) => formatMoney(n, c);
 const card = { background: "var(--surface)", borderRadius: 16, boxShadow: "0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow: "hidden" };
 const bedColors = { available: ["var(--brand)", "var(--brand-tint-light)"], occupied: ["var(--danger)", "var(--danger-bg)"], maintenance: ["var(--warn)", "var(--warn-bg)"] };
 
@@ -24,7 +24,7 @@ addTranslations({
       choosePatient: "Choose a patient…", chooseWard: "Choose a ward…", chooseBed: "Choose a bed…", reason: "Reason for admission", diagnosis: "Diagnosis", errAdmit: "Choose a patient, ward and bed",
       admitted: "Patient admitted.", wardSaved: "Ward saved.", bedsAdded: "Beds added.", noteAdded: "Note added.", discharged: "Patient discharged.", billRaised: "A bill of {{amount}} was raised.",
       reasonLabel: "Reason", diagnosisLabel: "Diagnosis", notes: "Progress notes", noNotes: "No notes yet", addNote: "Add a note", notePh: "Today's progress, treatment given, plan…", postNote: "Add note",
-      discharge: "Discharge patient", dischargeTitle: "Discharge {{name}}", summary: "Discharge summary", extra: "Extra charges (optional)", extraDesc: "Description", extraAmt: "Amount (UGX)", addExtra: "Add charge",
+      discharge: "Discharge patient", dischargeTitle: "Discharge {{name}}", summary: "Discharge summary", extra: "Extra charges (optional)", extraDesc: "Description", extraAmt: "Amount ({{cur}})", addExtra: "Add charge",
       dischargeNote: "The bed is freed straight away. Bed days are charged per started 24 hours (minimum 1 day).", confirmDischarge: "Confirm discharge",
       dischargedOn: "Discharged", by: "by", billedBed: "Bed charge", stay: "{{n}} day(s)", occupantOpen: "Open admission",
     },
@@ -43,7 +43,7 @@ addTranslations({
       choosePatient: "Choisir un patient…", chooseWard: "Choisir un service…", chooseBed: "Choisir un lit…", reason: "Motif d'admission", diagnosis: "Diagnostic", errAdmit: "Choisissez un patient, un service et un lit",
       admitted: "Patient admis.", wardSaved: "Service enregistré.", bedsAdded: "Lits ajoutés.", noteAdded: "Note ajoutée.", discharged: "Patient sorti.", billRaised: "Une facture de {{amount}} a été créée.",
       reasonLabel: "Motif", diagnosisLabel: "Diagnostic", notes: "Notes d'évolution", noNotes: "Aucune note", addNote: "Ajouter une note", notePh: "Évolution du jour, traitements, plan…", postNote: "Ajouter la note",
-      discharge: "Faire sortir le patient", dischargeTitle: "Sortie de {{name}}", summary: "Résumé de sortie", extra: "Frais supplémentaires (facultatif)", extraDesc: "Description", extraAmt: "Montant (UGX)", addExtra: "Ajouter des frais",
+      discharge: "Faire sortir le patient", dischargeTitle: "Sortie de {{name}}", summary: "Résumé de sortie", extra: "Frais supplémentaires (facultatif)", extraDesc: "Description", extraAmt: "Montant ({{cur}})", addExtra: "Ajouter des frais",
       dischargeNote: "Le lit est libéré immédiatement. Les jours sont facturés par tranche de 24 h commencée (minimum 1 jour).", confirmDischarge: "Confirmer la sortie",
       dischargedOn: "Sorti le", by: "par", billedBed: "Frais de lit", stay: "{{n}} jour(s)", occupantOpen: "Ouvrir l'admission",
     },
@@ -62,7 +62,7 @@ addTranslations({
       choosePatient: "اختر مريضًا…", chooseWard: "اختر جناحًا…", chooseBed: "اختر سريرًا…", reason: "سبب التنويم", diagnosis: "التشخيص", errAdmit: "اختر مريضًا وجناحًا وسريرًا",
       admitted: "تم تنويم المريض.", wardSaved: "تم حفظ الجناح.", bedsAdded: "تمت إضافة الأسرّة.", noteAdded: "تمت إضافة الملاحظة.", discharged: "تم إخراج المريض.", billRaised: "تم إصدار فاتورة بمبلغ {{amount}}.",
       reasonLabel: "السبب", diagnosisLabel: "التشخيص", notes: "ملاحظات المتابعة", noNotes: "لا توجد ملاحظات", addNote: "إضافة ملاحظة", notePh: "تطور اليوم، العلاج المُعطى، الخطة…", postNote: "إضافة الملاحظة",
-      discharge: "إخراج المريض", dischargeTitle: "إخراج {{name}}", summary: "ملخص الإخراج", extra: "رسوم إضافية (اختياري)", extraDesc: "الوصف", extraAmt: "المبلغ (UGX)", addExtra: "إضافة رسم",
+      discharge: "إخراج المريض", dischargeTitle: "إخراج {{name}}", summary: "ملخص الإخراج", extra: "رسوم إضافية (اختياري)", extraDesc: "الوصف", extraAmt: "المبلغ ({{cur}})", addExtra: "إضافة رسم",
       dischargeNote: "يُحرَّر السرير فورًا. تُحتسب الأيام لكل 24 ساعة بدأت (حدٌّ أدنى يوم واحد).", confirmDischarge: "تأكيد الإخراج",
       dischargedOn: "تاريخ الإخراج", by: "بواسطة", billedBed: "رسوم السرير", stay: "{{n}} يوم", occupantOpen: "فتح التنويم",
     },
@@ -77,25 +77,21 @@ const WARD_TYPES = ["general", "maternity", "paediatric", "icu", "private", "sur
 
 function AdmitModal({ token, wards, preset, onClose, onDone }) {
   const { t } = useTranslation();
-  const [patients, setPatients] = useState([]);
+  const fetchPatients = useMemo(() => patientFetcher(token), [token]);
   const [f, setF] = useState({ patientId: "", wardId: preset?.wardId || "", bedNumber: preset?.bedNumber || "", reason: "", diagnosis: "" });
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { api("/patients", "GET", null, token).then((r) => setPatients(Array.isArray(r) ? r : [])).catch((e) => setErr(apiErrorMessage(e))); }, [token]);
   const ward = wards.find((w) => w.id === f.wardId);
   const free = (ward?.beds || []).filter((b) => b.status === "available");
   const submit = async () => {
-    if (!f.patientId || !f.wardId || !f.bedNumber) return setErr(t("inp.errAdmit"));
-    setBusy(true); setErr("");
+    if (!f.patientId || !f.wardId || !f.bedNumber) { setErr(t("inp.errAdmit")); return false; }
+    setErr("");
     try { await api("/admissions", "POST", { ...f, reason: f.reason.trim() || undefined, diagnosis: f.diagnosis.trim() || undefined }, token); onDone(); }
-    catch (e) { setErr(apiErrorMessage(e)); setBusy(false); }
+    catch (e) { setErr(apiErrorMessage(e)); return false; }
   };
   return (
     <Modal title={t("inp.admit")} onClose={onClose}>
       <Field label={t("inp.patient")}>
-        <select style={inp} value={f.patientId} onChange={(e) => setF({ ...f, patientId: e.target.value })}>
-          <option value="">{t("inp.choosePatient")}</option>{patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        <SearchSelect value={f.patientId} onChange={(v) => setF({ ...f, patientId: v })} fetcher={fetchPatients} placeholder={t("inp.choosePatient")} noResults={t("common.noRecords")} ariaLabel={t("inp.patient")} />
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
         <Field label={t("inp.ward").split(" / ")[0]}>
@@ -113,7 +109,7 @@ function AdmitModal({ token, wards, preset, onClose, onDone }) {
       <Field label={t("inp.reason")}><input style={inp} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></Field>
       <Field label={t("inp.diagnosis")}><input style={inp} value={f.diagnosis} onChange={(e) => setF({ ...f, diagnosis: e.target.value })} /></Field>
       {err && <Alert>{err}</Alert>}
-      <button style={{ ...btnP, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={submit}><Icon name="check" size={16} /> {busy ? t("inp.saving") : t("inp.admit")}</button>
+      <LoadingButton style={btnP} busyLabel={t("inp.saving")} onClick={submit}><Icon name="check" size={16} /> {t("inp.admit")}</LoadingButton>
     </Modal>
   );
 }
@@ -122,7 +118,7 @@ function WardModal({ token, ward, onClose, onDone }) {
   const { t } = useTranslation();
   const [f, setF] = useState({ name: ward?.name || "", type: ward?.type || "general", dailyRate: ward?.dailyRate ?? "", bedCount: 10, addBeds: "" });
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
   const submit = async () => {
     if (!f.name.trim()) return setErr(t("inp.wardName"));
     setBusy(true); setErr("");
@@ -143,13 +139,13 @@ function WardModal({ token, ward, onClose, onDone }) {
       <Field label={t("inp.wardName")}><input style={inp} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label={t("inp.type")}><select style={inp} value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>{WARD_TYPES.map((x) => <option key={x} value={x}>{t(`inp.types.${x}`)}</option>)}</select></Field>
-        <Field label={`${t("inp.rate")} (UGX)`}><input style={inp} type="number" min="0" value={f.dailyRate} onChange={(e) => setF({ ...f, dailyRate: e.target.value })} /></Field>
+        <Field label={`${t("inp.rate")} (${getCurrency()})`}><input style={inp} type="number" min="0" value={f.dailyRate} onChange={(e) => setF({ ...f, dailyRate: e.target.value })} /></Field>
       </div>
       {ward
         ? <Field label={`${t("inp.addBeds")} — ${t("inp.howMany")}`}><input style={inp} type="number" min="0" value={f.addBeds} onChange={(e) => setF({ ...f, addBeds: e.target.value })} /></Field>
         : <Field label={t("inp.bedCount")}><input style={inp} type="number" min="1" max="200" value={f.bedCount} onChange={(e) => setF({ ...f, bedCount: e.target.value })} /></Field>}
       {err && <Alert>{err}</Alert>}
-      <button style={{ ...btnP, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={submit}><Icon name="check" size={16} /> {busy ? t("inp.saving") : t("inp.save")}</button>
+      <LoadingButton style={btnP} busyLabel={t("inp.saving")} onClick={submit}><Icon name="check" size={16} /> {t("inp.save")}</LoadingButton>
     </Modal>
   );
 }
@@ -159,7 +155,7 @@ function DischargeModal({ token, adm, onClose, onDone }) {
   const [summary, setSummary] = useState("");
   const [extras, setExtras] = useState([]);
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
   const setX = (i, patch) => setExtras((xs) => xs.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
   const submit = async () => {
     setBusy(true); setErr("");
@@ -185,7 +181,7 @@ function DischargeModal({ token, adm, onClose, onDone }) {
       <button type="button" style={{ ...btnG, marginBottom: 12 }} onClick={() => setExtras((xs) => [...xs, { description: "", amount: "" }])}><Icon name="plus" size={13} /> {t("inp.addExtra")}</button>
       <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>{t("inp.dischargeNote")}</div>
       {err && <Alert>{err}</Alert>}
-      <button style={{ ...btnP, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={submit}><Icon name="check" size={16} /> {busy ? t("inp.saving") : t("inp.confirmDischarge")}</button>
+      <LoadingButton style={btnP} busyLabel={t("inp.saving")} onClick={submit}><Icon name="check" size={16} /> {t("inp.confirmDischarge")}</LoadingButton>
     </Modal>
   );
 }

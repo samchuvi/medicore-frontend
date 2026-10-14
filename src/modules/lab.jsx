@@ -3,9 +3,9 @@
 // Backend: GET/POST /lab-orders, PUT /lab-orders/:id, GET /patients (to order).
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { api, apiErrorMessage, formatDateTime, addTranslations, Icon, Modal, Field, inp, btnP, btnG, btnE, Badge, StatCard, Table } from "../shared";
+import { api, apiErrorMessage, formatDateTime, addTranslations, Icon, Modal, Field, inp, btnP, btnG, btnE, Badge, StatCard, Table, formatMoney, LoadingButton, SearchSelect, patientFetcher } from "../shared";
 
-const money = (n) => `UGX ${(Number(n) || 0).toLocaleString()}`;
+const money = (n, c) => formatMoney(n, c);
 const card = { background: "var(--surface)", borderRadius: 16, boxShadow: "0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow: "hidden" };
 const flagColor = { normal: "var(--brand)", high: "var(--danger)", low: "var(--warn)", abnormal: "var(--danger)" };
 // Suggestions only — staff can type any test name.
@@ -16,12 +16,12 @@ addTranslations({
     nav: { lab: "Laboratory" },
     lab: {
       title: "Laboratory", newOrder: "New lab order",
-      fPending: "Pending", fProgress: "In progress", fCompleted: "Completed", fAll: "All",
+      fOpen: "To do", fPending: "Pending", fProgress: "In progress", fCompleted: "Completed", fAll: "All",
       cPending: "Waiting", cProgress: "In progress", cDone: "Completed", cUrgent: "Urgent waiting",
       ref: "Order #", date: "Date", patient: "Patient", tests: "Tests", priority: "Priority", status: "Status", orderedBy: "Ordered by",
       none: "No lab orders here", open: "Open", view: "View results", process: "Enter results",
       choosePatient: "Choose a patient…", routine: "Routine", urgent: "Urgent", clinicalNotes: "Clinical notes (why these tests?)",
-      testName: "Test name", price: "Price (UGX)", unit: "Unit", range: "Reference range", result: "Result", flag: "Flag",
+      testName: "Test name", price: "Price ({{cur}})", unit: "Unit", range: "Reference range", result: "Result", flag: "Flag",
       addTest: "Add test", removeTest: "Remove", flagNone: "—", normal: "Normal", high: "High", low: "Low", abnormal: "Abnormal",
       place: "Place order", saving: "Saving…", errPatient: "Choose a patient", errTests: "Add at least one test",
       orderPlaced: "Lab order placed.", saved: "Saved.", released: "Results released.",
@@ -34,12 +34,12 @@ addTranslations({
     nav: { lab: "Laboratoire" },
     lab: {
       title: "Laboratoire", newOrder: "Nouvelle demande",
-      fPending: "En attente", fProgress: "En cours", fCompleted: "Terminées", fAll: "Toutes",
+      fOpen: "À faire", fPending: "En attente", fProgress: "En cours", fCompleted: "Terminées", fAll: "Toutes",
       cPending: "En attente", cProgress: "En cours", cDone: "Terminées", cUrgent: "Urgentes en attente",
       ref: "N° demande", date: "Date", patient: "Patient", tests: "Examens", priority: "Priorité", status: "Statut", orderedBy: "Demandé par",
       none: "Aucune demande ici", open: "Ouvrir", view: "Voir les résultats", process: "Saisir les résultats",
       choosePatient: "Choisir un patient…", routine: "Routine", urgent: "Urgent", clinicalNotes: "Renseignements cliniques (pourquoi ces examens ?)",
-      testName: "Nom de l'examen", price: "Prix (UGX)", unit: "Unité", range: "Valeurs de référence", result: "Résultat", flag: "Indicateur",
+      testName: "Nom de l'examen", price: "Prix ({{cur}})", unit: "Unité", range: "Valeurs de référence", result: "Résultat", flag: "Indicateur",
       addTest: "Ajouter un examen", removeTest: "Retirer", flagNone: "—", normal: "Normal", high: "Élevé", low: "Bas", abnormal: "Anormal",
       place: "Envoyer la demande", saving: "Enregistrement…", errPatient: "Choisissez un patient", errTests: "Ajoutez au moins un examen",
       orderPlaced: "Demande envoyée.", saved: "Enregistré.", released: "Résultats publiés.",
@@ -52,12 +52,12 @@ addTranslations({
     nav: { lab: "المختبر" },
     lab: {
       title: "المختبر", newOrder: "طلب تحليل جديد",
-      fPending: "قيد الانتظار", fProgress: "قيد التنفيذ", fCompleted: "مكتملة", fAll: "الكل",
+      fOpen: "المطلوب", fPending: "قيد الانتظار", fProgress: "قيد التنفيذ", fCompleted: "مكتملة", fAll: "الكل",
       cPending: "بالانتظار", cProgress: "قيد التنفيذ", cDone: "مكتملة", cUrgent: "عاجلة بالانتظار",
       ref: "رقم الطلب", date: "التاريخ", patient: "المريض", tests: "التحاليل", priority: "الأولوية", status: "الحالة", orderedBy: "طلبه",
       none: "لا توجد طلبات هنا", open: "فتح", view: "عرض النتائج", process: "إدخال النتائج",
       choosePatient: "اختر مريضًا…", routine: "عادي", urgent: "عاجل", clinicalNotes: "ملاحظات سريرية (سبب التحاليل)",
-      testName: "اسم التحليل", price: "السعر (UGX)", unit: "الوحدة", range: "المدى المرجعي", result: "النتيجة", flag: "الدلالة",
+      testName: "اسم التحليل", price: "السعر ({{cur}})", unit: "الوحدة", range: "المدى المرجعي", result: "النتيجة", flag: "الدلالة",
       addTest: "إضافة تحليل", removeTest: "إزالة", flagNone: "—", normal: "طبيعي", high: "مرتفع", low: "منخفض", abnormal: "غير طبيعي",
       place: "إرسال الطلب", saving: "جارٍ الحفظ…", errPatient: "اختر مريضًا", errTests: "أضف تحليلًا واحدًا على الأقل",
       orderPlaced: "تم إرسال الطلب.", saved: "تم الحفظ.", released: "تم إصدار النتائج.",
@@ -74,17 +74,12 @@ const Alert = ({ kind = "error", children }) => (
 
 function NewOrderModal({ token, onClose, onDone }) {
   const { t } = useTranslation();
-  const [patients, setPatients] = useState([]);
+  const fetchPatients = useMemo(() => patientFetcher(token), [token]);
   const [patientId, setPatientId] = useState("");
   const [priority, setPriority] = useState("routine");
   const [clinicalNotes, setClinicalNotes] = useState("");
   const [tests, setTests] = useState([{ name: "", price: "" }]);
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    api("/patients", "GET", null, token).then((r) => setPatients(Array.isArray(r) ? r : [])).catch((e) => setErr(apiErrorMessage(e)));
-  }, [token]);
 
   const setTest = (i, patch) => setTests((ts) => ts.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
 
@@ -92,11 +87,11 @@ function NewOrderModal({ token, onClose, onDone }) {
     const clean = tests.filter((x) => x.name.trim());
     if (!patientId) return setErr(t("lab.errPatient"));
     if (!clean.length) return setErr(t("lab.errTests"));
-    setBusy(true); setErr("");
+    setErr("");
     try {
       await api("/lab-orders", "POST", { patientId, priority, clinicalNotes: clinicalNotes.trim() || undefined, tests: clean.map((x) => ({ name: x.name.trim(), price: Number(x.price) || 0 })) }, token);
       onDone();
-    } catch (e) { setErr(apiErrorMessage(e)); setBusy(false); }
+    } catch (e) { setErr(apiErrorMessage(e)); return false; }
   };
 
   return (
@@ -104,10 +99,7 @@ function NewOrderModal({ token, onClose, onDone }) {
       <datalist id="lab-common-tests">{COMMON_TESTS.map((n) => <option key={n} value={n} />)}</datalist>
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
         <Field label={t("lab.patient")}>
-          <select style={inp} value={patientId} onChange={(e) => setPatientId(e.target.value)}>
-            <option value="">{t("lab.choosePatient")}</option>
-            {patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <SearchSelect value={patientId} onChange={(v) => setPatientId(v)} fetcher={fetchPatients} placeholder={t("lab.choosePatient")} noResults={t("common.noRecords")} ariaLabel={t("lab.patient")} />
         </Field>
         <Field label={t("lab.priority")}>
           <select style={inp} value={priority} onChange={(e) => setPriority(e.target.value)}>
@@ -126,7 +118,7 @@ function NewOrderModal({ token, onClose, onDone }) {
       ))}
       <button type="button" style={{ ...btnG, marginBottom: 14 }} onClick={() => setTests((ts) => [...ts, { name: "", price: "" }])}><Icon name="plus" size={13} /> {t("lab.addTest")}</button>
       {err && <Alert>{err}</Alert>}
-      <button style={{ ...btnP, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={submit}><Icon name="check" size={16} /> {busy ? t("lab.saving") : t("lab.place")}</button>
+      <LoadingButton style={btnP} busyLabel={t("lab.saving")} onClick={submit}><Icon name="check" size={16} /> {t("lab.place")}</LoadingButton>
     </Modal>
   );
 }
@@ -141,18 +133,18 @@ function OrderModal({ order, token, user, onClose, onChanged }) {
   const [tests, setTests] = useState(order.tests.map((x) => ({ result: x.result || "", unit: x.unit || "", referenceRange: x.referenceRange || "", flag: x.flag || "" })));
   const [notes, setNotes] = useState(order.notes || "");
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
   const setT = (i, patch) => setTests((ts) => ts.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
 
   const send = async (status, doneMsg) => {
-    if (status === "completed" && tests.some((x) => !x.result.trim())) return setErr(t("lab.errResults"));
-    setBusy(true); setErr("");
+    if (status === "completed" && tests.some((x) => !x.result.trim())) { setErr(t("lab.errResults")); return false; }
+    setErr("");
     try {
       const body = { tests, notes };
       if (status) body.status = status;
-      await api(`/lab-orders/${order.id}`, "PUT", body, token);
-      onChanged(doneMsg);
-    } catch (e) { setErr(apiErrorMessage(e)); setBusy(false); }
+      const updated = await api(`/lab-orders/${order.id}`, "PUT", body, token);
+      // Starting work keeps the order open so the technician goes straight on to entering results.
+      onChanged(doneMsg, status === "in_progress" ? updated : null);
+    } catch (e) { setErr(apiErrorMessage(e)); return false; }
   };
 
   return (
@@ -198,10 +190,10 @@ function OrderModal({ order, token, user, onClose, onChanged }) {
 
       {canEdit && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
-          {order.status === "pending" && <button style={btnE} disabled={busy} onClick={() => send("in_progress", t("lab.saved"))}>{t("lab.start")}</button>}
-          <button style={btnG} disabled={busy} onClick={() => send(null, t("lab.saved"))}>{t("lab.save")}</button>
-          {order.status !== "completed" && order.status !== "cancelled" && <button style={btnP} disabled={busy} onClick={() => send("completed", t("lab.released"))}><Icon name="check" size={15} /> {t("lab.complete")}</button>}
-          {order.status !== "completed" && order.status !== "cancelled" && <button style={{ ...btnG, color: "var(--danger)" }} disabled={busy} onClick={() => { if (window.confirm(t("lab.confirmCancel"))) send("cancelled", t("lab.saved")); }}>{t("lab.cancelOrder")}</button>}
+          {order.status === "pending" && <LoadingButton style={btnE} busyLabel={t("lab.saving")} onClick={() => send("in_progress", t("lab.saved"))}>{t("lab.start")}</LoadingButton>}
+          <LoadingButton style={btnG} busyLabel={t("lab.saving")} onClick={() => send(null, t("lab.saved"))}>{t("lab.save")}</LoadingButton>
+          {order.status !== "completed" && order.status !== "cancelled" && <LoadingButton style={btnP} busyLabel={t("lab.saving")} onClick={() => send("completed", t("lab.released"))}><Icon name="check" size={15} /> {t("lab.complete")}</LoadingButton>}
+          {order.status !== "completed" && order.status !== "cancelled" && <LoadingButton style={{ ...btnG, color: "var(--danger)" }} busyLabel={t("lab.saving")} onClick={() => { if (window.confirm(t("lab.confirmCancel"))) return send("cancelled", t("lab.saved")); }}>{t("lab.cancelOrder")}</LoadingButton>}
         </div>
       )}
     </Modal>
@@ -211,7 +203,7 @@ function OrderModal({ order, token, user, onClose, onChanged }) {
 export default function Lab({ token, user }) {
   const { t, i18n } = useTranslation();
   const [orders, setOrders] = useState([]);
-  const [filter, setFilter] = useState(user.role === "labstaff" ? "pending" : "all");
+  const [filter, setFilter] = useState(user.role === "labstaff" ? "open" : "all");
   const [modal, setModal] = useState(null);
   const [open, setOpen] = useState(null);
   const [error, setError] = useState("");
@@ -228,7 +220,8 @@ export default function Lab({ token, user }) {
   const urgentWaiting = orders.filter((o) => o.status === "pending" && o.priority === "urgent").length;
 
   const shown = useMemo(() => {
-    const rows = filter === "all" ? orders : orders.filter((o) => o.status === filter);
+    const isOpen = (o) => o.status === "pending" || o.status === "in_progress";
+    const rows = filter === "all" ? orders : filter === "open" ? orders.filter(isOpen) : orders.filter((o) => o.status === filter);
     // Urgent first, then oldest first for work still to do; newest first otherwise.
     const open = (o) => o.status === "pending" || o.status === "in_progress";
     return [...rows].sort((a, b) => {
@@ -237,7 +230,7 @@ export default function Lab({ token, user }) {
     });
   }, [orders, filter]);
 
-  const tabs = [["pending", "fPending"], ["in_progress", "fProgress"], ["completed", "fCompleted"], ["all", "fAll"]];
+  const tabs = [["open", "fOpen"], ["pending", "fPending"], ["in_progress", "fProgress"], ["completed", "fCompleted"], ["all", "fAll"]];
 
   return (
     <div>
@@ -278,7 +271,7 @@ export default function Lab({ token, user }) {
       </div>
 
       {modal === "new" && <NewOrderModal token={token} onClose={() => setModal(null)} onDone={() => { setModal(null); setNotice(t("lab.orderPlaced")); load(); }} />}
-      {open && <OrderModal order={open} token={token} user={user} onClose={() => setOpen(null)} onChanged={(msg) => { setOpen(null); setNotice(msg); load(); }} />}
+      {open && <OrderModal key={`${open.id}-${open.status}`} order={open} token={token} user={user} onClose={() => setOpen(null)} onChanged={(msg, keep) => { setOpen(keep || null); setNotice(msg); load(); }} />}
     </div>
   );
 }

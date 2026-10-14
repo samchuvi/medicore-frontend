@@ -20,6 +20,7 @@ import PharmacySales from "./pharmacySales";
 import Lab from "./lab";
 import Inpatient from "./inpatient";
 import Referrals from "./carePlans";
+import HospitalSettings from "./hospitalSettings";
 
 // after:"key" places a module right under another menu item.
 // first:true puts a module at the top of the menu (used for platform-owner tools).
@@ -31,5 +32,6 @@ export const MODULES = [
   { key: "lab", navKey: "lab", icon: "lab", Component: Lab, roles: ["admin", "doctor", "labstaff"], feature: "laboratory" },
   { key: "inpatient", navKey: "inpatient", icon: "bed", Component: Inpatient, roles: ["admin", "doctor", "receptionist"], feature: "inpatient" },
   { key: "referrals", navKey: "referrals", icon: "referral", Component: Referrals, roles: ["admin", "doctor", "receptionist"], feature: "referrals" },
+  { key: "hospitalSettings", navKey: "hospitalSettings", icon: "settings", Component: HospitalSettings, roles: ["admin"] },
   // (more feature modules are added here as they are built)
 ];

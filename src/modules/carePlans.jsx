@@ -4,7 +4,7 @@
 // hospital (features treatmentPlans / referrals).
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { api, apiErrorMessage, formatDate, addTranslations, Icon, Modal, Field, inp, btnP, btnG, btnE, Badge, StatCard, Table } from "../shared";
+import { api, apiErrorMessage, formatDate, addTranslations, Icon, Modal, Field, inp, btnP, btnG, btnE, Badge, StatCard, Table, LoadingButton } from "../shared";
 
 const card = { background: "var(--surface)", borderRadius: 16, boxShadow: "0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow: "hidden" };
 const lbl = { fontSize: 12, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 };
@@ -85,7 +85,7 @@ export function PlanModal({ token, user, patient, plan, onClose, onDone }) {
   });
   const [meds, setMeds] = useState((plan?.medications || []).length ? plan.medications.map((m) => ({ ...m })) : []);
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
   const isDoctor = user.role === "doctor";
   const doctorId = isDoctor ? me?.id : f.doctorId;
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
@@ -140,7 +140,7 @@ export function PlanModal({ token, user, patient, plan, onClose, onDone }) {
       </div>
       <Field label={t("care.notes")}><input style={inp} value={f.notes} onChange={set("notes")} /></Field>
       {err && <Alert>{err}</Alert>}
-      <button style={{ ...btnP, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={submit}><Icon name="check" size={16} /> {busy ? t("care.saving") : t("care.save")}</button>
+      <LoadingButton style={btnP} busyLabel={t("care.saving")} onClick={submit}><Icon name="check" size={16} /> {t("care.save")}</LoadingButton>
     </Modal>
   );
 }
@@ -151,7 +151,7 @@ export function ReferralModal({ token, user, patient, onClose, onDone }) {
   const isDoctor = user.role === "doctor";
   const [f, setF] = useState({ fromDoctorId: "", toDoctorId: "", toDepartment: "", reason: "", urgency: "routine", notes: "" });
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
 
   const submit = async () => {
@@ -193,7 +193,7 @@ export function ReferralModal({ token, user, patient, onClose, onDone }) {
         <select style={inp} value={f.urgency} onChange={set("urgency")}><option value="routine">{t("care.routine")}</option><option value="urgent">{t("care.urgent")}</option></select>
       </Field>
       {err && <Alert>{err}</Alert>}
-      <button style={{ ...btnP, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={submit}><Icon name="check" size={16} /> {busy ? t("care.saving") : t("care.send")}</button>
+      <LoadingButton style={btnP} busyLabel={t("care.saving")} onClick={submit}><Icon name="check" size={16} /> {t("care.send")}</LoadingButton>
     </Modal>
   );
 }

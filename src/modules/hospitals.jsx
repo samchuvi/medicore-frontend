@@ -5,13 +5,13 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { PLATFORM_COLOR } from "../config";
 import { effectiveColor } from "../theme";
-import { shrinkImage, api, apiErrorMessage, withErr, formatDate, addTranslations, Icon, Modal, Field, inp, btnP, btnD, btnE, btnG, Badge } from "../shared";
+import { shrinkImage, api, apiErrorMessage, withErr, formatDate, addTranslations, Icon, Modal, Field, inp, btnP, btnD, btnE, btnG, Badge, formatMoney, LoadingButton, toast, CURRENCY_INFO } from "../shared";
 
 // The feature switches a hospital can have. To offer a new one, add its key here
 // and a label under hospitals.feat.<key> in the translations below.
 const FEATURES = ["pharmacy", "billing", "laboratory", "inpatient", "treatmentPlans", "referrals"];
 
-const money = (n) => `UGX ${(Number(n) || 0).toLocaleString()}`;
+const money = (n, c) => formatMoney(n, c);
 
 addTranslations({
   en: {
@@ -91,31 +91,38 @@ addTranslations({
   },
 });
 
+const COUNTRY_CURRENCY = { UG: "UGX", CD: "CDF", KE: "KES", TZ: "TZS", RW: "RWF", BI: "BIF", SS: "USD", OTHER: "USD" };
+const COUNTRIES = Object.keys(COUNTRY_CURRENCY);
+const CurrencySelect = ({ value, onChange, label }) => (
+  <select style={inp} value={value} aria-label={label} onChange={onChange}>
+    {Object.keys(CURRENCY_INFO).map((c) => <option key={c} value={c}>{c}</option>)}
+  </select>
+);
+
 const errBox = { background: "var(--danger-bg)", border: "1px solid var(--danger-border)", borderRadius: 8, padding: "10px 14px", color: "var(--danger)", fontSize: 13, marginBottom: 16 };
 
 function CreateHospitalModal({ token, onClose, onDone }) {
   const { t } = useTranslation();
-  const [f, setF] = useState({ name: "", slug: "", color: PLATFORM_COLOR, adminName: "", adminUsername: "", adminPassword: "" });
+  const [f, setF] = useState({ name: "", slug: "", color: PLATFORM_COLOR, adminName: "", adminUsername: "", adminPassword: "", country: "UG", currency: "UGX" });
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
 
   const save = async () => {
     const slug = f.slug.trim().toLowerCase();
     if (!f.name.trim()) return setErr(t("hospitals.errName"));
     if (!/^[a-z0-9-]+$/.test(slug)) return setErr(t("hospitals.errCode"));
-    if (!f.adminUsername.trim() || f.adminPassword.length < 6) return setErr(t("hospitals.errAdmin"));
-    setBusy(true); setErr("");
+    if (!f.adminUsername.trim() || f.adminPassword.length < 8) return setErr(t("hospitals.errAdmin"));
+    setErr("");
     let hospital;
     try {
-      hospital = await api("/hospitals", "POST", { name: f.name.trim(), slug, theme: { primaryColor: f.color } }, token);
-    } catch (e) { setBusy(false); return setErr(apiErrorMessage(e, t("common.error"))); }
+      hospital = await api("/hospitals", "POST", { name: f.name.trim(), slug, country: f.country, currency: f.currency, theme: { primaryColor: f.color } }, token);
+    } catch (e) { setErr(apiErrorMessage(e, t("common.error"))); return false; }
     try {
       await api(`/hospitals/${hospital.id}/admin`, "POST", { name: f.adminName.trim() || undefined, username: f.adminUsername.trim(), password: f.adminPassword }, token);
       onDone();
     } catch (e) {
       // The hospital exists; only its first admin failed. Say so clearly.
-      alert(t("hospitals.partial", { message: apiErrorMessage(e, t("common.error")) }));
+      toast.error(t("hospitals.partial", { message: apiErrorMessage(e, t("common.error")) }));
       onDone();
     }
   };
@@ -131,15 +138,23 @@ function CreateHospitalModal({ token, onClose, onDone }) {
         <Field label={t("hospitals.color")}><input style={{ ...inp, padding: 4, height: 42 }} type="color" value={f.color} onChange={set("color")} /></Field>
       </div>
       <div style={{ fontSize: 11, color: "var(--text-faint)", margin: "-8px 0 16px" }}>{t("hospitals.codeHint")}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label={t("hospitals.country")}>
+          <select style={inp} value={f.country} onChange={(e) => setF((x) => ({ ...x, country: e.target.value, currency: COUNTRY_CURRENCY[e.target.value] || x.currency }))}>
+            {COUNTRIES.map((c) => <option key={c} value={c}>{t(`hospitals.countries.${c}`)}</option>)}
+          </select>
+        </Field>
+        <Field label={t("hospitals.currency")}><CurrencySelect value={f.currency} onChange={set("currency")} label={t("hospitals.currency")} /></Field>
+      </div>
       <div style={{ fontSize: 13, fontWeight: 700, color: "var(--brand-text-strong)", margin: "8px 0 12px" }}>{t("hospitals.adminSection")}</div>
       <Field label={t("hospitals.adminName")}><input style={inp} value={f.adminName} onChange={set("adminName")} /></Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label={t("hospitals.adminUsername")}><input style={inp} value={f.adminUsername} autoCapitalize="none" onChange={set("adminUsername")} /></Field>
         <Field label={t("hospitals.adminPassword")}><input style={inp} type="password" value={f.adminPassword} onChange={set("adminPassword")} /></Field>
       </div>
-      <button style={{ ...btnP, marginTop: 8, opacity: busy ? 0.7 : 1 }} disabled={busy} onClick={save}>
-        <Icon name="plus" size={16} /> {busy ? t("hospitals.creating") : t("hospitals.create")}
-      </button>
+      <LoadingButton style={{ ...btnP, marginTop: 8 }} busyLabel={t("hospitals.creating")} onClick={save}>
+        <Icon name="plus" size={16} /> {t("hospitals.create")}
+      </LoadingButton>
     </Modal>
   );
 }
@@ -147,16 +162,15 @@ function CreateHospitalModal({ token, onClose, onDone }) {
 function FeaturesModal({ token, hospital, onClose, onDone }) {
   const { t } = useTranslation();
   const [on, setOn] = useState(() => Object.fromEntries(FEATURES.map((k) => [k, Boolean(hospital.features?.[k])])));
-  const [busy, setBusy] = useState(false);
+  const [currency, setCur] = useState(hospital.currency || "UGX");
   const save = async () => {
-    setBusy(true);
     // Only the switches are sent; the backend merges them, so other settings stay untouched.
-    const ok = await withErr(() => api(`/hospitals/${hospital.id}`, "PUT", { features: on }, token));
-    setBusy(false);
-    if (ok) onDone();
+    const ok = await withErr(() => api(`/hospitals/${hospital.id}`, "PUT", { features: on, currency }, token), t("hospitals.savedOk"));
+    if (ok) onDone(); else return false;
   };
   return (
     <Modal title={t("hospitals.featuresTitle", { name: hospital.name })} onClose={onClose}>
+      <Field label={t("hospitals.currency")}><CurrencySelect value={currency} onChange={(e) => setCur(e.target.value)} label={t("hospitals.currency")} /></Field>
       <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text-muted)" }}>{t("hospitals.featuresHint")}</p>
       {FEATURES.map((k) => (
         <label key={k} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 12px", border: "1px solid var(--brand-tint)", borderRadius: 10, marginBottom: 8, cursor: "pointer", background: on[k] ? "var(--brand-tint-light)" : "#fff" }}>
@@ -164,7 +178,7 @@ function FeaturesModal({ token, hospital, onClose, onDone }) {
           <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{t(`hospitals.feat.${k}`)}</span>
         </label>
       ))}
-      <button style={{ ...btnP, marginTop: 12, opacity: busy ? 0.7 : 1 }} disabled={busy} onClick={save}><Icon name="check" size={16} /> {t("hospitals.save")}</button>
+      <LoadingButton style={{ ...btnP, marginTop: 12 }} busyLabel={t("hospitals.saving")} onClick={save}><Icon name="check" size={16} /> {t("hospitals.save")}</LoadingButton>
     </Modal>
   );
 }
@@ -174,7 +188,6 @@ function BrandingModal({ token, hospital, onClose, onDone }) {
   const [logo, setLogo] = useState(hospital.logo || "");
   const [color, setColor] = useState(effectiveColor(hospital.theme?.primaryColor));
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
   const pick = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -183,10 +196,8 @@ function BrandingModal({ token, hospital, onClose, onDone }) {
     try { setLogo(await shrinkImage(file)); setErr(""); } catch { setErr(t("hospitals.errImage")); }
   };
   const save = async () => {
-    setBusy(true);
-    const ok = await withErr(() => api(`/hospitals/${hospital.id}`, "PUT", { logo, theme: { primaryColor: color } }, token));
-    setBusy(false);
-    if (ok) onDone();
+    const ok = await withErr(() => api(`/hospitals/${hospital.id}`, "PUT", { logo, theme: { primaryColor: color } }, token), t("hospitals.savedOk"));
+    if (ok) onDone(); else return false;
   };
   return (
     <Modal title={t("hospitals.brandingTitle", { name: hospital.name })} onClose={onClose}>
@@ -210,7 +221,7 @@ function BrandingModal({ token, hospital, onClose, onDone }) {
         </div>
       </Field>
       {err && <div role="alert" style={{ background: "var(--danger-bg)", color: "var(--danger)", padding: "10px 14px", borderRadius: 10, fontSize: 13, margin: "8px 0" }}>{err}</div>}
-      <button style={{ ...btnP, marginTop: 12, opacity: busy ? 0.7 : 1 }} disabled={busy} onClick={save}><Icon name="check" size={16} /> {t("hospitals.save")}</button>
+      <LoadingButton style={{ ...btnP, marginTop: 12 }} busyLabel={t("hospitals.saving")} onClick={save}><Icon name="check" size={16} /> {t("hospitals.save")}</LoadingButton>
     </Modal>
   );
 }
@@ -219,15 +230,15 @@ function AddAdminModal({ token, hospital, onClose, onDone }) {
   const { t } = useTranslation();
   const [f, setF] = useState({ name: "", username: "", password: "" });
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
   const save = async () => {
-    if (!f.username.trim() || f.password.length < 6) return setErr(t("hospitals.errAdmin"));
-    setBusy(true); setErr("");
+    if (!f.username.trim() || f.password.length < 8) return setErr(t("hospitals.errAdmin"));
+    setErr("");
     try {
       await api(`/hospitals/${hospital.id}/admin`, "POST", { name: f.name.trim() || undefined, username: f.username.trim(), password: f.password }, token);
+      toast.success(t("hospitals.savedOk"));
       onDone();
-    } catch (e) { setErr(apiErrorMessage(e, t("common.error"))); setBusy(false); }
+    } catch (e) { setErr(apiErrorMessage(e, t("common.error"))); return false; }
   };
   return (
     <Modal title={t("hospitals.addAdminTitle", { name: hospital.name })} onClose={onClose}>
@@ -237,7 +248,7 @@ function AddAdminModal({ token, hospital, onClose, onDone }) {
         <Field label={t("hospitals.adminUsername")}><input style={inp} value={f.username} autoCapitalize="none" onChange={set("username")} /></Field>
         <Field label={t("hospitals.adminPassword")}><input style={inp} type="password" value={f.password} onChange={set("password")} /></Field>
       </div>
-      <button style={{ ...btnP, marginTop: 8, opacity: busy ? 0.7 : 1 }} disabled={busy} onClick={save}><Icon name="plus" size={16} /> {t("hospitals.addAdmin")}</button>
+      <LoadingButton style={{ ...btnP, marginTop: 8 }} busyLabel={t("hospitals.saving")} onClick={save}><Icon name="plus" size={16} /> {t("hospitals.addAdmin")}</LoadingButton>
     </Modal>
   );
 }
@@ -245,12 +256,11 @@ function AddAdminModal({ token, hospital, onClose, onDone }) {
 function ConfirmModal({ hospital, onClose, onConfirm }) {
   const { t } = useTranslation();
   const suspending = hospital.status !== "suspended";
-  const [busy, setBusy] = useState(false);
   return (
     <Modal title={t(suspending ? "hospitals.confirmSuspendTitle" : "hospitals.confirmResumeTitle", { name: hospital.name })} onClose={onClose}>
       <p style={{ margin: "0 0 20px", fontSize: 14, color: "var(--text-muted)", lineHeight: 1.5 }}>{t(suspending ? "hospitals.confirmSuspendText" : "hospitals.confirmResumeText")}</p>
       <div style={{ display: "flex", gap: 10 }}>
-        <button style={suspending ? { ...btnD, padding: "11px 24px", fontSize: 14, opacity: busy ? 0.7 : 1 } : { ...btnP, opacity: busy ? 0.7 : 1 }} disabled={busy} onClick={async () => { setBusy(true); await onConfirm(); setBusy(false); }}>{t("hospitals.confirm")}</button>
+        <LoadingButton style={suspending ? { ...btnD, padding: "11px 24px", fontSize: 14 } : { ...btnP }} busyLabel={t("hospitals.saving")} onClick={onConfirm}>{t("hospitals.confirm")}</LoadingButton>
         <button style={{ ...btnG, padding: "11px 24px", fontSize: 14 }} onClick={onClose}>{t("hospitals.cancel")}</button>
       </div>
     </Modal>
@@ -317,7 +327,7 @@ export default function Hospitals({ token }) {
                   </div>
                   <div>
                   <div style={{ fontSize: 17, fontWeight: 800, color: "var(--text)" }}>{h.name}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 2 }}>{t("hospitals.code")}: <b>{h.slug}</b> · {t("hospitals.since")} {formatDate(h.createdAt, i18n.language)}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 2 }}>{t("hospitals.code")}: <b>{h.slug}</b> · <b>{h.currency || "UGX"}</b> · {t("hospitals.since")} {formatDate(h.createdAt, i18n.language)}</div>
                   </div>
                 </div>
                 <Badge status={h.status} />
@@ -327,8 +337,8 @@ export default function Hospitals({ token }) {
                 <Stat label={t("hospitals.patients")} value={h.totalPatients} />
                 <Stat label={t("hospitals.users")} value={h.totalUsers} />
                 <Stat label={t("hospitals.pendingBills")} value={h.pendingBills} />
-                <Stat label={t("hospitals.revenue")} value={money(h.totalRevenue)} />
-                <Stat label={t("hospitals.pharmacy")} value={money(h.pharmacyRevenue)} />
+                <Stat label={t("hospitals.revenue")} value={money(h.totalRevenue, h.currency)} />
+                <Stat label={t("hospitals.pharmacy")} value={money(h.pharmacyRevenue, h.currency)} />
                 <Stat label={t("hospitals.lowStock")} value={h.lowStockItems} />
               </div>
 

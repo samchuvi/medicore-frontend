@@ -3,10 +3,10 @@
 // and accounts — everything in one place for continuity of care.
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { api, apiErrorMessage, formatDate, formatDateTime, addTranslations, Icon, inp, btnG, btnP, Badge, StatCard, Table } from "../shared";
+import { api, apiErrorMessage, formatDate, formatDateTime, addTranslations, Icon, inp, btnG, btnP, Badge, StatCard, Table, formatMoney } from "../shared";
 import { PlanModal, ReferralModal, ReferralActions } from "./carePlans";
 
-const money = (n) => `UGX ${(Number(n) || 0).toLocaleString()}`;
+const money = (n, c) => formatMoney(n, c);
 
 addTranslations({
   en: {

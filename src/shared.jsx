@@ -1,7 +1,7 @@
 // Shared building blocks used by App.jsx and every feature module under
 // src/modules/. Import from here instead of copying — one look-and-feel,
 // one API helper, one translation helper.
-import { useState, useSyncExternalStore } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore } from "react";
 import i18n from "i18next";
 import { useTranslation } from "react-i18next";
 import { getMode, toggleMode, subscribeMode } from "./theme";
@@ -41,15 +41,38 @@ export const T = {
   shadow:     "0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)",
 };
 
+// An Idempotency-Key lets the server recognise "the same click" if it arrives twice
+// (double click, retry after a flaky connection) and run the action only once.
+// useAction() below sets the key for the request its action sends first.
+let ambientKey = null;
+export function setAmbientKey(k) { ambientKey = k; }
+export const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+const NETWORK_MSG = "Cannot reach the server. Check your internet connection and try again.";
+const SERVER_MSG = "The server is busy or starting up. Please wait a few seconds and try again.";
+const jsonErr = (error, code) => new Error(JSON.stringify({ error, code }));
+
 export async function api(path, method = "GET", body = null, token = null) {
+  const key = method === "POST" ? ambientKey : null;
+  if (key) ambientKey = null; // consumed by the first POST of an action
+  const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), 60000) : null; // free hosting can take ~50s to wake up
   const opts = {
     method,
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(key ? { "Idempotency-Key": key } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
+    ...(ctl ? { signal: ctl.signal } : {}),
   };
-  const r = await fetch(`${API}${path}`, opts);
-  if (r.status === 401 && path !== "/login") { onAuthError?.(); throw new Error('{"error":"Session expired"}'); }
-  if (!r.ok) throw new Error(await r.text());
+  let r;
+  try { r = await fetch(`${API}${path}`, opts); }
+  catch { throw jsonErr(NETWORK_MSG, "NETWORK"); }
+  finally { if (timer) clearTimeout(timer); }
+  if (r.status === 401 && path !== "/login") { onAuthError?.(); throw new Error('{"error":"Session expired","code":"SESSION_EXPIRED"}'); }
+  if (!r.ok) {
+    const text = await r.text();
+    try { JSON.parse(text); throw new Error(text); }
+    catch (e) { if (e.message === text) throw e; throw jsonErr(r.status >= 500 ? SERVER_MSG : "Request failed", r.status >= 500 ? "SERVER_DOWN" : "HTTP_" + r.status); }
+  }
   return r.json();
 }
 
@@ -57,13 +80,209 @@ export async function api(path, method = "GET", body = null, token = null) {
 export function apiErrorMessage(e, fallback = "Something went wrong") {
   try { return JSON.parse(e.message)?.error || fallback; } catch { return fallback; }
 }
+export function apiErrorCode(e) { try { return JSON.parse(e.message)?.code || ""; } catch { return ""; } }
+
+// ─── TOASTS ──────────────────────────────────────────────────────────────────
+// Small pop-up messages (success / error) instead of browser alert() boxes.
+const toastListeners = new Set();
+export function toast(message, kind = "success") { toastListeners.forEach((fn) => fn({ id: newKey(), message, kind })); }
+toast.success = (m) => toast(m, "success");
+toast.error = (m) => toast(m, "error");
+export function ToastHost() {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    const fn = (item) => {
+      setItems((xs) => [...xs.slice(-3), item]);
+      setTimeout(() => setItems((xs) => xs.filter((x) => x.id !== item.id)), item.kind === "error" ? 7000 : 3500);
+    };
+    toastListeners.add(fn);
+    return () => toastListeners.delete(fn);
+  }, []);
+  return (
+    <div aria-live="polite" style={{ position: "fixed", bottom: 20, insetInlineEnd: 20, zIndex: 5000, display: "flex", flexDirection: "column", gap: 8, maxWidth: "min(380px, calc(100vw - 40px))" }}>
+      {items.map((x) => (
+        <div key={x.id} role={x.kind === "error" ? "alert" : "status"} data-toast={x.kind}
+          style={{ background: x.kind === "error" ? "var(--danger-bg)" : "var(--brand-tint-light)", color: x.kind === "error" ? "var(--danger)" : "var(--brand-text-strong)", border: `1px solid ${x.kind === "error" ? "var(--danger-border)" : "var(--brand-tint)"}`, borderRadius: 10, padding: "11px 14px", fontSize: 14, fontWeight: 600, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }}>
+          {x.message}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // Run a mutation, surfacing any failure to the user instead of letting it become
-// an unhandled promise rejection. Returns true on success.
-export async function withErr(fn) {
-  try { await fn(); return true; }
-  catch (e) { if (apiErrorMessage(e) !== "Session expired") alert(apiErrorMessage(e)); return false; }
+// an unhandled promise rejection. Returns true on success. A success message is
+// shown only after the server confirmed (the call did not throw).
+export async function withErr(fn, successMsg) {
+  try { await fn(); if (successMsg) toast.success(successMsg); return true; }
+  catch (e) { if (apiErrorCode(e) !== "SESSION_EXPIRED") toast.error(apiErrorMessage(e)); return false; }
 }
+
+// ─── ONE ACTION AT A TIME ────────────────────────────────────────────────────
+// useAction() gives [run, busy]. run(fn) ignores any further call while one is
+// still in flight (a ref lock, so a fast double click or the Enter key cannot
+// slip through before React re-renders), and attaches one Idempotency-Key to
+// the request so a retry of the same submit cannot create a second record.
+export function useAction() {
+  const lock = useRef(false);
+  const key = useRef(null);
+  const alive = useRef(true);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const run = useCallback(async (fn) => {
+    if (lock.current) return undefined;
+    lock.current = true; setBusy(true);
+    if (!key.current) key.current = newKey();
+    setAmbientKey(key.current);
+    try { const r = await fn(); if (r !== false) key.current = null; return r; }
+    finally { setAmbientKey(null); lock.current = false; if (alive.current) setBusy(false); }
+  }, []);
+  return [run, busy];
+}
+
+// A button that shows a busy label, disables itself and ignores repeat clicks
+// while its (async) onClick runs. Keeps working if the handler throws.
+export function LoadingButton({ onClick, busyLabel, children, style, disabled, type = "button", ...rest }) {
+  const [run, busy] = useAction();
+  return (
+    <button type={type} {...rest} aria-busy={busy} disabled={disabled || busy}
+      onClick={(e) => { if (!onClick) return; run(async () => { try { return await onClick(e); } catch (err) { console.error(err); toast.error(apiErrorMessage(err)); return false; } }); }}
+      style={{ ...style, opacity: busy || disabled ? 0.65 : 1, cursor: busy ? "progress" : disabled ? "not-allowed" : (style?.cursor || "pointer") }}>
+      {busy && <span className="spin" aria-hidden="true" />}
+      {busy && busyLabel ? busyLabel : children}
+    </button>
+  );
+}
+
+// ─── MONEY ───────────────────────────────────────────────────────────────────
+// Each hospital has one currency. App sets it at sign-in; every screen formats through here.
+export const CURRENCY_INFO = {
+  UGX: { symbol: "UGX", decimals: 0 }, CDF: { symbol: "CDF", decimals: 0 }, USD: { symbol: "$", decimals: 2, tight: true },
+  KES: { symbol: "KSh", decimals: 0 }, TZS: { symbol: "TSh", decimals: 0 }, RWF: { symbol: "FRw", decimals: 0 },
+  BIF: { symbol: "FBu", decimals: 0 }, EUR: { symbol: "€", decimals: 2, tight: true },
+};
+let activeCurrency = "UGX";
+export function setCurrency(code) {
+  activeCurrency = CURRENCY_INFO[code] ? code : "UGX";
+  // Makes "{{cur}}" in any translation resolve to the hospital's currency.
+  if (i18n.options) { i18n.options.interpolation = { ...(i18n.options.interpolation || {}), defaultVariables: { cur: activeCurrency } }; }
+}
+export const getCurrency = () => activeCurrency;
+// Extra currencies the hospital accepts for payments: rates[code] = units of that currency per 1 main-currency unit.
+let payRates = {};
+export function setPayCurrencies(settings) { payRates = { ...(settings?.exchangeRates || {}) }; }
+export const getPayRates = () => payRates;
+// Rates read most naturally as "1 USD = 2,800 CDF" (stronger currency on the left), whichever one is the hospital's main currency.
+// Only the ordering matters here, so approximate values in USD are enough. The stored rate is always "units of that currency per 1 main unit".
+const UNIT_VALUE = { EUR: 1.1, USD: 1, KES: 0.0077, TZS: 0.0004, RWF: 0.0007, BIF: 0.00034, CDF: 0.00035, UGX: 0.00027 };
+const clean = (n) => Number(Number(n).toPrecision(8));
+// What the rate editor shows: { strong, weak, value } meaning 1 strong = value weak.
+export function rateView(base, code, stored) {
+  const baseStronger = (UNIT_VALUE[base] || 0) > (UNIT_VALUE[code] || 0);
+  return baseStronger ? { strong: base, weak: code, value: stored ? clean(stored) : "" } : { strong: code, weak: base, value: stored ? clean(1 / stored) : "" };
+}
+// Converts what the user typed back to the stored form.
+export function rateToStored(base, code, typed) {
+  const v = parseFloat(typed); if (!(v > 0)) return NaN;
+  return (UNIT_VALUE[base] || 0) > (UNIT_VALUE[code] || 0) ? v : 1 / v;
+}
+export const getAcceptedCurrencies = () => [activeCurrency, ...Object.keys(payRates)];
+// Show an amount in the currency it was actually paid in (decimals follow that currency).
+export function formatIn(n, code) { return formatMoney(n, code); }
+export function formatMoney(n, code) {
+  const c = CURRENCY_INFO[code] ? code : activeCurrency; const info = CURRENCY_INFO[c];
+  const num = (Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: info.decimals, maximumFractionDigits: info.decimals });
+  return info.tight ? `${info.symbol}${num}` : `${info.symbol} ${num}`;
+}
+
+// Dropdown lists (departments of THIS hospital, qualifications, roles…) from the server, fetched once.
+let optionsCache = null;
+export const clearOptionsCache = () => { optionsCache = null; };
+export function useOptions(token) {
+  const [o, setO] = useState(optionsCache?.token === token ? optionsCache.data : null);
+  useEffect(() => {
+    if (!token || optionsCache?.token === token) return undefined;
+    let live = true;
+    api("/meta/options", "GET", null, token).then((d) => { optionsCache = { token, data: d }; if (live) setO(d); }).catch(() => {});
+    return () => { live = false; };
+  }, [token]);
+  return o || (optionsCache?.token === token ? optionsCache.data : null);
+}
+
+// ─── SEARCHABLE DROPDOWN ─────────────────────────────────────────────────────
+// Type to filter. Give it `options` (a fixed list) or `fetcher(query)` (asks the
+// server, so it never downloads a whole table). Items: { value, label, sub? }.
+export function SearchSelect({ value, onChange, options, fetcher, valueLabel = "", placeholder, noResults, ariaLabel, disabled, allowClear = true, minChars = 0 }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [fetched, setFetched] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [active, setActive] = useState(0);
+  const [picked, setPicked] = useState("");
+  const seq = useRef(0);
+  const norm = (o) => (typeof o === "string" ? { value: o, label: o } : o);
+
+  // A fixed list is filtered right here; a server list is asked for (after a short pause while typing).
+  const staticItems = useMemo(() => {
+    if (fetcher) return [];
+    const ql = q.trim().toLowerCase();
+    return (options || []).map(norm).filter((o) => !ql || o.label.toLowerCase().includes(ql) || (o.sub || "").toLowerCase().includes(ql)).slice(0, 100);
+  }, [fetcher, options, q]);
+  const items = fetcher ? fetched : staticItems;
+
+  useEffect(() => {
+    if (!open || !fetcher) return undefined;
+    const my = ++seq.current;
+    const timer = setTimeout(() => {
+      if (q.trim().length < minChars) { if (my === seq.current) { setFetched([]); setLoading(false); } return; }
+      setLoading(true);
+      fetcher(q.trim()).then((r) => { if (my === seq.current) { setFetched((r || []).map(norm)); setActive(0); setLoading(false); } })
+        .catch(() => { if (my === seq.current) { setFetched([]); setLoading(false); } });
+    }, q ? 250 : 0);
+    return () => clearTimeout(timer);
+  }, [q, open, fetcher, minChars]);
+
+  const label = value ? (picked || valueLabel || String(value)) : "";
+  const choose = (it) => { setPicked(it.label); onChange(it.value, it); setOpen(false); setQ(""); };
+  const onKey = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, items.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+    else if (e.key === "Enter" && open) { e.preventDefault(); if (items[active]) choose(items[active]); }
+    else if (e.key === "Escape") { setOpen(false); setQ(""); }
+  };
+  return (
+    <div style={{ position: "relative" }}>
+      <input role="combobox" aria-expanded={open} aria-label={ariaLabel} aria-autocomplete="list" autoComplete="off" disabled={disabled}
+        style={{ ...inp, paddingInlineEnd: allowClear && value ? 32 : 12 }}
+        placeholder={placeholder} value={open ? q : label}
+        onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setActive(0); setOpen(true); }}
+        onBlur={() => setTimeout(() => { setOpen(false); setQ(""); }, 150)} onKeyDown={onKey} />
+      {allowClear && value && !disabled && (
+        <button type="button" aria-label="Clear" onMouseDown={(e) => e.preventDefault()} onClick={() => { setPicked(""); onChange("", null); }}
+          style={{ position: "absolute", insetInlineEnd: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--text-faint)", fontSize: 18, lineHeight: 1 }}>×</button>
+      )}
+      {open && (
+        <div role="listbox" style={{ position: "absolute", zIndex: 1500, top: "calc(100% + 4px)", insetInlineStart: 0, insetInlineEnd: 0, maxHeight: 240, overflowY: "auto", background: "var(--surface)", border: "1px solid var(--brand-tint)", borderRadius: 10, boxShadow: "0 12px 40px rgba(0,0,0,0.16)" }}>
+          {loading && <div style={{ padding: "10px 12px", fontSize: 13, color: "var(--text-faint)" }}>…</div>}
+          {!loading && items.length === 0 && <div style={{ padding: "10px 12px", fontSize: 13, color: "var(--text-faint)" }}>{noResults || "—"}</div>}
+          {items.map((it, i) => (
+            <div key={String(it.value)} role="option" aria-selected={i === active} onMouseDown={(e) => { e.preventDefault(); choose(it); }} onMouseEnter={() => setActive(i)}
+              style={{ padding: "9px 12px", cursor: "pointer", fontSize: 14, background: i === active ? "var(--brand-tint-light)" : "transparent", color: "var(--text)" }}>
+              <div style={{ fontWeight: 600 }}>{it.label}</div>
+              {it.sub && <div style={{ fontSize: 12, color: "var(--text-faint)" }}>{it.sub}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Patients matching a search (name, patient number or phone), asked from the server.
+export const patientFetcher = (token) => async (q) => {
+  const r = await api(`/patients?limit=20${q ? `&q=${encodeURIComponent(q)}` : ""}`, "GET", null, token);
+  return (Array.isArray(r) ? r : []).map((p) => ({ value: p.id, label: p.name, sub: [p.patientNumber, p.phone, p.age ? `${p.age}y` : ""].filter(Boolean).join(" · ") }));
+};
 
 // Format a date in the currently active language.
 export const formatDate = (v, lng) =>

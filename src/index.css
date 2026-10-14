@@ -34,3 +34,8 @@ body {
 [dir='rtl'] body {
   direction: rtl;
 }
+
+/* Small spinner used inside buttons while an action is running. */
+.spin { display:inline-block; width:14px; height:14px; border:2px solid currentColor; border-inline-end-color:transparent; border-radius:50%; animation:hms-spin .7s linear infinite; margin-inline-end:8px; vertical-align:-2px; }
+@keyframes hms-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2s; } }

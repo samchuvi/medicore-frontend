@@ -2,9 +2,9 @@
 // and review past sales. Backend: POST/GET /pharmacy-sales, GET /inventory.
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { api, apiErrorMessage, formatDateTime, addTranslations, Icon, Modal, Field, inp, btnP, btnG, StatCard, Table } from "../shared";
+import { api, apiErrorMessage, formatDateTime, addTranslations, Icon, Modal, Field, inp, btnP, btnG, StatCard, Table, formatMoney, LoadingButton } from "../shared";
 
-const money = (n) => `UGX ${(Number(n) || 0).toLocaleString()}`;
+const money = (n, c) => formatMoney(n, c);
 const card = { background: "var(--surface)", borderRadius: 16, boxShadow: "0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow: "hidden" };
 
 addTranslations({
@@ -124,7 +124,7 @@ function NewSaleModal({ token, mode, onClose, onDone }) {
   const [customer, setCustomer] = useState({ patient: null, name: "" });
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
 
   useEffect(() => {
     api("/inventory", "GET", null, token).then((r) => setStock(Array.isArray(r) ? r : [])).catch((e) => setErr(apiErrorMessage(e)));
@@ -182,7 +182,7 @@ function NewSaleModal({ token, mode, onClose, onDone }) {
         <span style={{ fontSize: 22, fontWeight: 800, color: "var(--brand-text-strong)" }}>{money(total)}</span>
       </div>
       {err && <div role="alert" style={{ background: "var(--danger-bg)", color: "var(--danger)", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 10 }}>{err}</div>}
-      <button style={{ ...btnP, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={submit}><Icon name="check" size={16} /> {busy ? t("psales.saving") : t("psales.confirmSale")}</button>
+      <LoadingButton style={btnP} busyLabel={t("psales.saving")} onClick={submit}><Icon name="check" size={16} /> {t("psales.confirmSale")}</LoadingButton>
     </Modal>
   );
 }
