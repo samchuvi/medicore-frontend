@@ -123,6 +123,7 @@ function NewSaleModal({ token, mode, onClose, onDone }) {
   const [lines, setLines] = useState([{ inventoryId: "", quantity: 1 }]);
   const [customer, setCustomer] = useState({ patient: null, name: "" });
   const [notes, setNotes] = useState("");
+  const [method, setMethod] = useState("Cash");
   const [err, setErr] = useState("");
   const [, setBusy] = useState(false);
 
@@ -147,7 +148,7 @@ function NewSaleModal({ token, mode, onClose, onDone }) {
       await api("/pharmacy-sales", "POST", {
         items: chosen.map((l) => ({ inventoryId: l.inventoryId, quantity: Number(l.quantity) })),
         patientId: customer.patient ? customer.patient.id : undefined,
-        patientName: customer.patient ? undefined : (customer.name.trim() || undefined), notes: notes.trim() || undefined,
+        patientName: customer.patient ? undefined : (customer.name.trim() || undefined), notes: notes.trim() || undefined, method,
       }, token);
       onDone();
     } catch (e) { setErr(apiErrorMessage(e)); setBusy(false); }
@@ -176,6 +177,11 @@ function NewSaleModal({ token, mode, onClose, onDone }) {
         );
       })}
       <button type="button" style={{ ...btnG, marginBottom: 12 }} onClick={() => setLines((ls) => [...ls, { inventoryId: "", quantity: 1 }])}><Icon name="plus" size={13} /> {t("psales.addMedicine")}</button>
+      <Field label={t("fields.method")}>
+        <select style={inp} value={method} onChange={(e) => setMethod(e.target.value)} aria-label={t("fields.method")}>
+          {[["Cash", "cash"], ["Mobile Money", "mobileMoney"], ["Bank Transfer", "bankTransfer"], ["Insurance", "insurance"], ["Card", "card"]].map(([v, k]) => <option key={v} value={v}>{t(`transactions.methods.${k}`)}</option>)}
+        </select>
+      </Field>
       <Field label={t("psales.notes")}><input style={inp} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderTop: "1px solid var(--brand-tint)", marginTop: 4 }}>
         <span style={{ fontWeight: 700, color: "var(--text-muted)" }}>{t("psales.total")}</span>

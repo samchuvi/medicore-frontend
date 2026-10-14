@@ -369,7 +369,7 @@ function Doctors({ token }) {
         <button style={btnP} onClick={()=>{setForm({});setModal("add");}}><Icon name="plus" size={16}/> {t("doctors.add")}</button>
       </div>
       <div style={panel}>
-        <Table columns={[{key:"name",label:t("fields.name")},{key:"specialization",label:t("fields.specialization")},{key:"qualification",label:t("fields.qualification")},{key:"department",label:t("fields.department")},{key:"phone",label:t("fields.phone")},{key:"status",label:t("fields.status"),render:v=><Badge status={v||"active"}/>}]} data={data}
+        <Table columns={[{key:"name",label:t("fields.name")},{key:"specialization",label:t("fields.specialization")},{key:"qualification",label:t("fields.qualification")},{key:"department",label:t("fields.department")},{key:"phone",label:t("fields.phone")},{key:"consultationFee",label:t("doctors.fee"),render:v=>Number(v)>0?formatMoney(Number(v)):"—"},{key:"status",label:t("fields.status"),render:v=><Badge status={v||"active"}/>}]} data={data}
           actions={row=>[
             <button key="e" style={btnE} onClick={()=>{setForm(row);setModal("add");}}><Icon name="edit" size={13}/> {t("common.edit")}</button>,
             <button key="d" style={btnD} onClick={()=>del(row.id)}><Icon name="trash" size={13}/></button>,
@@ -384,6 +384,7 @@ function Doctors({ token }) {
             <Field label={t("fields.qualification")}><SearchSelect value={form.qualification||""} valueLabel={form.qualification||""} options={opts?.qualifications||[]} placeholder={t("doctors.chooseQual")} noResults={t("common.noMatches")} ariaLabel={t("fields.qualification")} onChange={v=>setForm(f=>({...f,qualification:v}))}/></Field>
             <Field label={t("fields.department")}><SearchSelect value={form.department||""} valueLabel={form.department||""} options={opts?.departments||[]} placeholder={t("doctors.chooseDept")} noResults={t("common.noMatches")} ariaLabel={t("fields.department")} onChange={v=>setForm(f=>({...f,department:v}))}/></Field>
             <Field label={t("fields.phone")}><input style={inp} value={form.phone||""} onChange={e=>setForm(f=>({...f,phone:e.target.value}))}/></Field>
+            <Field label={t("doctors.fee")}><input style={inp} type="number" min="0" step="any" value={form.consultationFee??""} aria-label={t("doctors.fee")} onChange={e=>setForm(f=>({...f,consultationFee:e.target.value}))}/><div style={{ fontSize:12, color:"var(--text-faint)", marginTop:4 }}>{t("doctors.feeHint")}</div></Field>
             <Field label={t("fields.status")}><select style={inp} value={form.status||"active"} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="active">{t("status.active")}</option><option value="inactive">{t("status.inactive")}</option></select></Field>
           </div>
           <Field label={t("doctors.linkedUser")}>
@@ -626,7 +627,7 @@ function Billing({ token }) {
       </div>
       <div style={{ background:"var(--surface)", borderRadius:16, boxShadow:"0 2px 12px color-mix(in srgb, var(--brand) 8%, transparent)", overflow:"hidden" }}>
         <Table columns={[{key:"billNumber",label:t("fields.billNumber")},{key:"patientName",label:t("fields.patient"),render:(v,row)=>v||row.patientId},{key:"totalAmount",label:t("fields.total"),render:v=>formatMoney(parseFloat(v||0))},{key:"status",label:t("fields.status"),render:v=><Badge status={v}/>},{key:"createdAt",label:t("fields.date"),render:v=>formatDate(v,i18n.language)}]} data={bills}
-          actions={row=>[row.status!=="paid"&&<LoadingButton key="p" style={btnG} busyLabel={t("common.saving")} onClick={()=>markPaid(row)}><Icon name="check" size={13}/> {t("billing.markPaid")}</LoadingButton>].filter(Boolean)}
+          actions={row=>[row.status!=="paid"&&row.status!=="cancelled"&&<LoadingButton key="p" style={btnG} busyLabel={t("common.saving")} onClick={()=>markPaid(row)}><Icon name="check" size={13}/> {t("billing.markPaid")}</LoadingButton>].filter(Boolean)}
         />
       </div>
       {modal==="add"&&(
