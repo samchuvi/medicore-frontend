@@ -52,28 +52,46 @@ const NETWORK_MSG = "Cannot reach the server. Check your internet connection and
 const SERVER_MSG = "The server is busy or starting up. Please wait a few seconds and try again.";
 const jsonErr = (error, code) => new Error(JSON.stringify({ error, code }));
 
+// Free hosting puts the server to sleep when idle; the first request then takes up to a minute.
+// Sign-in and public look-ups therefore retry by themselves and tell the screen they are waiting.
+const wakeListeners = new Set();
+export function onWaking(fn) { wakeListeners.add(fn); return () => wakeListeners.delete(fn); }
+const notifyWaking = (n) => wakeListeners.forEach((fn) => { try { fn(n); } catch { /* ignore */ } });
+export function warmUp() { try { fetch(`${API}/health`, { cache: "no-store" }).catch(() => {}); } catch { /* ignore */ } }
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+const WAKE_TRIES = 12, WAKE_PAUSE = 5000;
+
 export async function api(path, method = "GET", body = null, token = null) {
   const key = method === "POST" ? ambientKey : null;
   if (key) ambientKey = null; // consumed by the first POST of an action
-  const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const timer = ctl ? setTimeout(() => ctl.abort(), 60000) : null; // free hosting can take ~50s to wake up
-  const opts = {
-    method,
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(key ? { "Idempotency-Key": key } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    ...(ctl ? { signal: ctl.signal } : {}),
-  };
-  let r;
-  try { r = await fetch(`${API}${path}`, opts); }
-  catch { throw jsonErr(NETWORK_MSG, "NETWORK"); }
-  finally { if (timer) clearTimeout(timer); }
-  if (r.status === 401 && path !== "/login") { onAuthError?.(); throw new Error('{"error":"Session expired","code":"SESSION_EXPIRED"}'); }
-  if (!r.ok) {
-    const text = await r.text();
-    try { JSON.parse(text); throw new Error(text); }
-    catch (e) { if (e.message === text) throw e; throw jsonErr(r.status >= 500 ? SERVER_MSG : "Request failed", r.status >= 500 ? "SERVER_DOWN" : "HTTP_" + r.status); }
+  const patient = path === "/login" || path.startsWith("/public/");
+  const tries = patient ? WAKE_TRIES : 1;
+  for (let attempt = 1; ; attempt++) {
+    const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 60000) : null; // free hosting can take ~50s to wake up
+    const opts = {
+      method,
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(key ? { "Idempotency-Key": key } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      ...(ctl ? { signal: ctl.signal } : {}),
+    };
+    let r, failed = false;
+    try { r = await fetch(`${API}${path}`, opts); }
+    catch { failed = true; }
+    finally { if (timer) clearTimeout(timer); }
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    const asleep = failed || r.status === 502 || r.status === 503 || r.status === 504;
+    if (asleep && attempt < tries && !offline) { notifyWaking(attempt); await sleep(WAKE_PAUSE); continue; }
+    if (patient) notifyWaking(0);
+    if (failed) throw jsonErr(NETWORK_MSG, "NETWORK");
+    if (r.status === 401 && path !== "/login") { onAuthError?.(); throw new Error('{"error":"Session expired","code":"SESSION_EXPIRED"}'); }
+    if (!r.ok) {
+      const text = await r.text();
+      try { JSON.parse(text); throw new Error(text); }
+      catch (e) { if (e.message === text) throw e; throw jsonErr(r.status >= 500 ? SERVER_MSG : "Request failed", r.status >= 500 ? "SERVER_DOWN" : "HTTP_" + r.status); }
+    }
+    return r.json();
   }
-  return r.json();
 }
 
 // Pull a human-readable message out of whatever api() threw.

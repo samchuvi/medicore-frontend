@@ -8,7 +8,7 @@ import {
   api, apiErrorMessage, withErr, formatDate, formatDateTime, setAuthErrorHandler,
   Icon, LanguageSwitcher, ThemeToggle, Modal, Field, inp, btnP, btnD, btnE, btnG,
   Badge, StatCard, Table,
-  LoadingButton, SearchSelect, patientFetcher, formatMoney, setCurrency, setPayCurrencies, getAcceptedCurrencies, getPayRates, rateView, getCurrency, toast, apiErrorCode, useAction, useOptions,
+  LoadingButton, SearchSelect, patientFetcher, formatMoney, setCurrency, setPayCurrencies, getAcceptedCurrencies, getPayRates, rateView, getCurrency, toast, apiErrorCode, useAction, useOptions, onWaking, warmUp,
 } from "./shared";
 
 const MODULES_BY_ROLE = {
@@ -47,7 +47,10 @@ function LoginPage({ onLogin }) {
   // Otherwise it starts empty. A blank code is only accepted for the platform owner.
   const [form, setForm] = useState({ hospitalSlug:initialHospitalCode(), username:"", password:"" });
   const [error, setError] = useState("");
+  const [waking, setWaking] = useState(0);
   const [run, loading] = useAction();
+  // Free hosting sleeps when idle: wake it as soon as the sign-in page opens, and tell people while it does.
+  useEffect(()=>{ warmUp(); return onWaking(setWaking); },[]);
 
   // Show the hospital's own logo, name and colour as soon as its code is known
   // (from its link or typed in). Unknown code / offline = the platform's look.
@@ -96,6 +99,7 @@ function LoginPage({ onLogin }) {
           {look?.name&&<div style={{ fontSize:11, color:"var(--text-faint)", marginTop:4 }}>{t("login.poweredBy",{name:platform.name})}</div>}
           <p style={{ margin:"6px 0 0", color:"var(--text-muted)", fontSize:14 }}>{t("login.subtitle")}</p>
         </div>
+        {waking>0 && <div role="status" data-testid="login-waking" style={{ background:"var(--brand-tint-light)", border:"1px solid var(--brand-tint)", borderRadius:8, padding:"10px 14px", color:"var(--brand-text-strong)", fontSize:13, marginBottom:16 }}>{t("login.waking")}</div>}
         {error && <div role="alert" data-testid="login-error" style={{ background:"var(--danger-bg)", border:"1px solid var(--danger-border)", borderRadius:8, padding:"10px 14px", color:"var(--danger)", fontSize:13, marginBottom:16 }}>{error}</div>}
         <Field label={t("login.hospitalCode")}>
           <input style={inp} value={form.hospitalSlug} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={e=>setForm(f=>({...f,hospitalSlug:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleSubmit()} />
