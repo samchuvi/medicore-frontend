@@ -8,8 +8,9 @@ import {
   api, apiErrorMessage, withErr, formatDate, formatDateTime, setAuthErrorHandler,
   Icon, LanguageSwitcher, ThemeToggle, Modal, Field, inp, btnP, btnD, btnE, btnG,
   Badge, StatCard, Table,
-  LoadingButton, SearchSelect, patientFetcher, formatMoney, setCurrency, setPayCurrencies, getAcceptedCurrencies, getPayRates, rateView, getCurrency, toast, apiErrorCode, useAction, useOptions, onWaking, warmUp,
+  LoadingButton, SearchSelect, patientFetcher, formatMoney, setCurrency, setPayCurrencies, getAcceptedCurrencies, getPayRates, rateView, getCurrency, toast, apiErrorCode, useAction, useOptions, onWaking, warmUp, warmOfflineCache, clearSavedCopy,
 } from "./shared";
+import OfflineBar from "./modules/offlineBar";
 
 const MODULES_BY_ROLE = {
   superadmin:   ["overview", "people", "audit", "dashboard", "patients", "doctors", "staff", "users", "appointments", "records", "pharmacy", "billing", "transactions"],
@@ -1024,7 +1025,7 @@ export default function App() {
 
   const saveHospital=h=>{ setCurrency(h?.currency); setPayCurrencies(h?.settings); setHospital(h||null); try{ h?localStorage.setItem("hms_hospital",JSON.stringify(h)):localStorage.removeItem("hms_hospital"); }catch{ /* storage unavailable */ } };
   const handleLogin=(tok,u,h)=>{ localStorage.setItem("hms_token",tok); localStorage.setItem("hms_user",JSON.stringify(u)); saveHospital(h); setToken(tok);setUser(u);setActive(u.role==="superadmin"?"hospitals":"dashboard"); };
-  const handleLogout=useCallback(()=>{ localStorage.removeItem("hms_token"); localStorage.removeItem("hms_user"); localStorage.removeItem("hms_hospital"); setToken(null);setUser(null);setHospital(null); },[]);
+  const handleLogout=useCallback(()=>{ try{ clearSavedCopy(localStorage.getItem("hms_token")); }catch{ /* nothing saved */ } localStorage.removeItem("hms_token"); localStorage.removeItem("hms_user"); localStorage.removeItem("hms_hospital"); setToken(null);setUser(null);setHospital(null); },[]);
 
   useEffect(()=>{ setAuthErrorHandler(handleLogout); return ()=>setAuthErrorHandler(null); },[handleLogout]);
 
@@ -1041,6 +1042,20 @@ export default function App() {
       .catch(e=>{ if(apiErrorCode(e)==="SUSPENDED"||/suspended/i.test(apiErrorMessage(e,""))){ toast.error(t("login.suspended")); handleLogout(); } });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[token]);
+
+  // Offline support: keep a fresh saved copy of the main lists, and refresh the screen once offline work has been sent.
+  const [syncVersion,setSyncVersion]=useState(0);
+  useEffect(()=>{
+    if(!token) return undefined;
+    const first=setTimeout(()=>warmOfflineCache(token),3000);
+    const timer=setInterval(()=>warmOfflineCache(token),10*60*1000);
+    return ()=>{ clearTimeout(first); clearInterval(timer); };
+  },[token]);
+  useEffect(()=>{
+    const done=()=>{ if(!document.querySelector('[role="dialog"]')) setSyncVersion(v=>v+1); };
+    window.addEventListener("hms-synced",done);
+    return ()=>window.removeEventListener("hms-synced",done);
+  },[]);
 
   // Browser tab title: the hospital's name once signed in, the product name otherwise.
   useEffect(()=>{ document.title=(token&&hospital?.name)||platform.name; },[token,hospital,platform.name]);
@@ -1115,7 +1130,8 @@ export default function App() {
           </div>
         </div>
         <div style={{ flex:1, padding:isSmall?14:28, overflowY:"auto", minWidth:0 }}>
-          <ActiveComponent token={token} user={user} hospital={hospital} onHospitalChanged={patch=>saveHospital({...hospital,...patch})}/>
+          {role!=="superadmin"&&<OfflineBar token={token}/>}
+          <ActiveComponent key={`${ActiveModule.key}-${syncVersion}`} token={token} user={user} hospital={hospital} onHospitalChanged={patch=>saveHospital({...hospital,...patch})}/>
         </div>
       </div>
     </div>

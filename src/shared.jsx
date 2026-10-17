@@ -6,6 +6,8 @@ import i18n from "i18next";
 import { useTranslation } from "react-i18next";
 import { getMode, toggleMode, subscribeMode } from "./theme";
 import { LANGUAGES } from "./i18n"; // also guarantees i18n is initialised before any module registers text
+import { cachePut, cacheGet, cacheKeys, cacheClearScope, queueAll, queueAdd, queueRemove, retryFailed, onQueueChange, isOffline, setOffline, onConnection, syncQueue } from "./offline";
+export { onQueueChange, isOffline, onConnection, retryFailed, queueRemove, setOffline };
 
 // Feature modules call this to ship their own English / French / Arabic text
 // without touching the big i18n.js file:
@@ -61,17 +63,125 @@ export function warmUp() { try { fetch(`${API}/health`, { cache: "no-store" }).c
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const WAKE_TRIES = 12, WAKE_PAUSE = 5000;
 
+// ─── OFFLINE ─────────────────────────────────────────────────────────────────
+// What the screens last showed is saved in this browser; new patients, bills, payments, pharmacy
+// sales, appointments and medical records made while the internet is down wait in a queue and are
+// sent, in order, when it returns. Everything else (edits, deletes, settings) needs a connection.
+const OFFLINE_POSTS = new Set(["/patients", "/bills", "/transactions", "/pharmacy-sales", "/appointments", "/records"]);
+const NO_CACHE = /^\/(login|audit-logs|hospitals|platform|users|public)(\/|\?|$)/;
+export function scopeOf(token) {
+  try { const p = JSON.parse(atob(String(token).split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); return `${p.hospitalId || ""}:${p.id || ""}`; } catch { return ""; }
+}
+const ck = (scope, path) => `${scope}|${path}`;
+const money2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+async function savedLists(scope, base) {
+  const out = [];
+  for (const k of await cacheKeys(ck(scope, base))) { const v = await cacheGet(k); if (Array.isArray(v)) out.push(v); }
+  return out;
+}
+async function nameLookup(scope, queued) {
+  const people = new Map();
+  for (const list of await savedLists(scope, "/patients")) list.forEach((p) => people.set(p.id, p.name));
+  queued.filter((i) => i.path === "/patients").forEach((i) => people.set(i.tempId, i.body.name));
+  const docs = new Map();
+  for (const list of await savedLists(scope, "/doctors")) list.forEach((d) => docs.set(d.id, d.name));
+  return { patient: (id) => people.get(id), doctor: (id) => docs.get(id) };
+}
+const mainAmount = (body) => {
+  const cur = body.currency, base = getCurrency(), rate = getPayRates()[cur];
+  return cur && cur !== base && rate > 0 ? money2(Number(body.amount) / rate) : money2(body.amount);
+};
+
+// Saved copy + whatever is still waiting to be sent, so the person sees their own work straight away.
+async function offlineRead(path, scope) {
+  const [base, qs = ""] = path.split("?");
+  const q = (new URLSearchParams(qs).get("q") || "").trim().toLowerCase();
+  let data = await cacheGet(ck(scope, path));
+  if (data === undefined && base === "/patients") {
+    let best; for (const l of await savedLists(scope, "/patients")) if (!best || l.length > best.length) best = l;
+    if (best) data = q ? best.filter((p) => [p.name, p.phone, p.email, p.patientNumber].some((v) => String(v || "").toLowerCase().includes(q))) : best;
+  }
+  if (data === undefined && base === "/pharmacy-sales/patient-search") data = [];
+  if (data === undefined) return undefined;
+  const queued = (await queueAll(scope)).filter((i) => !i.failed);
+  if (!queued.length || !Array.isArray(data)) return data;
+  const names = await nameLookup(scope, queued);
+  const mine = (p) => queued.filter((i) => i.path === p);
+  const asRow = (i, extra = {}) => ({ ...i.body, id: i.tempId, offline: true, createdAt: new Date(i.createdAt).toISOString(), ...extra });
+  if (base === "/patients") {
+    const rows = mine("/patients").map((i) => asRow(i, { patientNumber: "…" })).filter((p) => !q || String(p.name || "").toLowerCase().includes(q));
+    return [...rows, ...data];
+  }
+  if (base === "/bills") {
+    const fresh = mine("/bills").map((i) => asRow(i, { billNumber: "…", patientName: names.patient(i.body.patientId), status: "pending", paidAmount: 0, remainingAmount: money2(i.body.totalAmount) }));
+    const pays = mine("/transactions").filter((i) => i.body.billId);
+    return [...fresh, ...data].map((b) => {
+      const paid = pays.filter((i) => i.body.billId === b.id).reduce((s, i) => s + mainAmount(i.body), 0);
+      if (!paid) return b;
+      const remaining = Math.max(0, money2(Number(b.remainingAmount ?? b.totalAmount) - paid));
+      return { ...b, paidAmount: money2(Number(b.paidAmount || 0) + paid), remainingAmount: remaining, status: remaining <= 0 ? "paid" : "partial" };
+    });
+  }
+  if (base === "/transactions") {
+    return [...mine("/transactions").map((i) => asRow(i, { txRef: "…", amount: mainAmount(i.body), tenderedCurrency: i.body.currency, tenderedAmount: Number(i.body.amount), patientName: names.patient(i.body.patientId) })), ...data];
+  }
+  if (base === "/appointments") {
+    return [...mine("/appointments").map((i) => asRow(i, { patientName: names.patient(i.body.patientId), doctorName: names.doctor(i.body.doctorId), status: i.body.status || "scheduled" })), ...data];
+  }
+  if (base === "/records") {
+    return [...mine("/records").map((i) => asRow(i, { patientName: names.patient(i.body.patientId), doctorName: names.doctor(i.body.doctorId) })), ...data];
+  }
+  if (base === "/inventory") {
+    const used = {}; mine("/pharmacy-sales").forEach((i) => (i.body.items || []).forEach((l) => { used[l.inventoryId] = (used[l.inventoryId] || 0) + Number(l.quantity || 0); }));
+    return data.map((it) => (used[it.id] ? { ...it, quantity: Math.max(0, Number(it.quantity) - used[it.id]) } : it));
+  }
+  if (base === "/pharmacy-sales") {
+    const stock = {}; for (const l of await savedLists(scope, "/inventory")) l.forEach((it) => { stock[it.id] = it; });
+    return [...mine("/pharmacy-sales").map((i) => {
+      const items = (i.body.items || []).map((l) => { const it = stock[l.inventoryId] || {}; const unitPrice = Number(it.unitPrice) || 0; return { inventoryId: l.inventoryId, name: it.name || "", quantity: Number(l.quantity), unitPrice, subtotal: unitPrice * Number(l.quantity) }; });
+      return asRow(i, { saleRef: "…", items, totalAmount: items.reduce((s, x) => s + x.subtotal, 0), patientName: i.body.patientName || names.patient(i.body.patientId) });
+    }), ...data];
+  }
+  return data;
+}
+
+// Sending the queue ---------------------------------------------------------------
+async function sendQueued(path, body, key, token) {
+  const r = await fetch(`${API}${path}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "Idempotency-Key": key, "X-Durable": "1" }, body: JSON.stringify(body) });
+  const json = await r.json().catch(() => null);
+  if (r.status === 401) onAuthError?.();
+  return { status: r.status, json };
+}
+export async function runSync(token) {
+  const scope = scopeOf(token);
+  if (!scope || !token) return null;
+  const res = await syncQueue(scope, (path, body, key) => sendQueued(path, body, key, token));
+  if (res.sent) window.dispatchEvent(new CustomEvent("hms-synced", { detail: res }));
+  return res;
+}
+export async function pingServer() { try { const r = await fetch(`${API}/health`, { cache: "no-store" }); return r.ok; } catch { return false; } }
+export const retryProblems = (token) => retryFailed(scopeOf(token));
+export const pendingItems = (token) => queueAll(scopeOf(token));
+export const clearSavedCopy = (token) => { const sc = scopeOf(token); return sc ? cacheClearScope(`${sc}|`) : null; };
+const WARM = ["/patients?limit=200", "/doctors", "/bills", "/transactions", "/appointments", "/records", "/inventory", "/meta/options", "/pharmacy-sales"];
+export async function warmOfflineCache(token) {
+  for (const p of WARM) { if (isOffline()) return; try { await api(p, "GET", null, token); } catch { /* not allowed for this role, or no connection */ } }
+}
+
 export async function api(path, method = "GET", body = null, token = null) {
   const key = method === "POST" ? ambientKey : null;
   if (key) ambientKey = null; // consumed by the first POST of an action
   const patient = path === "/login" || path.startsWith("/public/");
+  const queueable = method === "POST" && Boolean(token) && OFFLINE_POSTS.has(path);
+  const sendKey = key || (queueable ? newKey() : null);
   const tries = patient ? WAKE_TRIES : 1;
   for (let attempt = 1; ; attempt++) {
     const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timer = ctl ? setTimeout(() => ctl.abort(), 60000) : null; // free hosting can take ~50s to wake up
     const opts = {
       method,
-      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(key ? { "Idempotency-Key": key } : {}) },
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(sendKey ? { "Idempotency-Key": sendKey } : {}), ...(queueable ? { "X-Durable": "1" } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
       ...(ctl ? { signal: ctl.signal } : {}),
     };
@@ -83,14 +193,29 @@ export async function api(path, method = "GET", body = null, token = null) {
     const asleep = failed || r.status === 502 || r.status === 503 || r.status === 504;
     if (asleep && attempt < tries && !offline) { notifyWaking(attempt); await sleep(WAKE_PAUSE); continue; }
     if (patient) notifyWaking(0);
+    if (asleep && token) {
+      const scope = scopeOf(token);
+      if (queueable && scope) {
+        const item = { qid: newKey(), scope, path, body: body || {}, key: sendKey, tempId: `offline-${newKey()}`, createdAt: Date.now() };
+        await queueAdd(item); setOffline(true);
+        return { ...item.body, id: item.tempId, offline: true, createdAt: new Date(item.createdAt).toISOString() };
+      }
+      if (method === "GET" && scope) {
+        const saved = await offlineRead(path, scope);
+        if (saved !== undefined) { setOffline(true); return saved; }
+      }
+    }
     if (failed) throw jsonErr(NETWORK_MSG, "NETWORK");
+    if (token) { const was = isOffline(); setOffline(false); if (was) window.dispatchEvent(new Event("hms-try-sync")); }
     if (r.status === 401 && path !== "/login") { onAuthError?.(); throw new Error('{"error":"Session expired","code":"SESSION_EXPIRED"}'); }
     if (!r.ok) {
       const text = await r.text();
       try { JSON.parse(text); throw new Error(text); }
       catch (e) { if (e.message === text) throw e; throw jsonErr(r.status >= 500 ? SERVER_MSG : "Request failed", r.status >= 500 ? "SERVER_DOWN" : "HTTP_" + r.status); }
     }
-    return r.json();
+    const data = await r.json();
+    if (method === "GET" && token && !NO_CACHE.test(path)) { const scope = scopeOf(token); if (scope) cachePut(ck(scope, path), data); }
+    return data;
   }
 }
 
@@ -442,7 +567,7 @@ export function LanguageSwitcher({ variant = "light" }) {
 
 export function Modal({ title, onClose, children }) {
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
+    <div role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:16 }}>
       <div style={{ background:"var(--surface)", borderRadius:16, width:"100%", maxWidth:560, maxHeight:"90vh", overflow:"auto", boxShadow:"0 24px 80px rgba(0,0,0,0.2)" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"20px 24px", borderBottom:"1px solid var(--brand-tint)" }}>
           <h3 style={{ margin:0, fontSize:18, fontWeight:700, color:"var(--brand-text-strong)" }}>{title}</h3>

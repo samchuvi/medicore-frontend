@@ -3,6 +3,16 @@ import { addTranslations } from "./shared";
 
 addTranslations({
   en: {
+    offline: {
+      title: "You are offline.", body: "Keep working — what you save is kept on this device and sent automatically when the connection is back. Edits and deletes need a connection.",
+      waiting_one: "1 change is waiting to be sent.", waiting_other: "{{count}} changes are waiting to be sent.", sending: "Sending your changes…", sendNow: "Send now",
+      synced_one: "1 change saved while offline has been sent.", synced_other: "{{count}} changes saved while offline have been sent.",
+      someFailed_one: "1 change was refused by the server.", someFailed_other: "{{count}} changes were refused by the server.",
+      problems_one: "1 change could not be saved by the server.", problems_other: "{{count}} changes could not be saved by the server.",
+      review: "Review", reviewTitle: "Changes that need attention", reviewHint: "The server refused these (for example: not enough stock, or a bill that is already paid). Check the reason, fix it in the normal screen, then discard the saved copy here.",
+      discard: "Discard", discarded: "Discarded.", close: "Close", retry: "Try again",
+      kind: { patients: "New patient", bills: "New bill", payments: "Payment", sales: "Pharmacy sale", appointments: "Appointment", records: "Medical record", other: "Change" },
+    },
     common: { saving: "Saving…", deleting: "Deleting…", typeToSearch: "Type to search…", noMatches: "No matches", required: "required" },
     login: {
       error: "Incorrect hospital code, username or password. Please check and try again.",
@@ -33,6 +43,16 @@ addTranslations({
     overview: { revenueByCurrency: "Revenue ({{cur}})" },
   },
   fr: {
+    offline: {
+      title: "Vous êtes hors ligne.", body: "Continuez à travailler — ce que vous enregistrez est conservé sur cet appareil et envoyé automatiquement au retour de la connexion. Les modifications et suppressions nécessitent une connexion.",
+      waiting_one: "1 modification en attente d'envoi.", waiting_other: "{{count}} modifications en attente d'envoi.", sending: "Envoi de vos modifications…", sendNow: "Envoyer maintenant",
+      synced_one: "1 modification enregistrée hors ligne a été envoyée.", synced_other: "{{count}} modifications enregistrées hors ligne ont été envoyées.",
+      someFailed_one: "1 modification a été refusée par le serveur.", someFailed_other: "{{count}} modifications ont été refusées par le serveur.",
+      problems_one: "1 modification n'a pas pu être enregistrée par le serveur.", problems_other: "{{count}} modifications n'ont pas pu être enregistrées par le serveur.",
+      review: "Examiner", reviewTitle: "Modifications à vérifier", reviewHint: "Le serveur a refusé ces éléments (par exemple : stock insuffisant ou facture déjà payée). Vérifiez la raison, corrigez dans l'écran habituel, puis supprimez la copie ici.",
+      discard: "Supprimer", discarded: "Supprimé.", close: "Fermer", retry: "Réessayer",
+      kind: { patients: "Nouveau patient", bills: "Nouvelle facture", payments: "Paiement", sales: "Vente en pharmacie", appointments: "Rendez-vous", records: "Dossier médical", other: "Modification" },
+    },
     common: { saving: "Enregistrement…", deleting: "Suppression…", typeToSearch: "Tapez pour rechercher…", noMatches: "Aucun résultat", required: "obligatoire" },
     login: {
       error: "Code d'hôpital, nom d'utilisateur ou mot de passe incorrect. Vérifiez et réessayez.",
@@ -63,6 +83,16 @@ addTranslations({
     overview: { revenueByCurrency: "Revenus ({{cur}})" },
   },
   ar: {
+    offline: {
+      title: "أنت غير متصل بالإنترنت.", body: "واصل العمل — ما تحفظه يبقى على هذا الجهاز ويُرسل تلقائيًا عند عودة الاتصال. التعديل والحذف يحتاجان إلى اتصال.",
+      waiting_zero: "لا توجد تغييرات تنتظر الإرسال.", waiting_one: "تغيير واحد ينتظر الإرسال.", waiting_two: "تغييران ينتظران الإرسال.", waiting_few: "{{count}} تغييرات تنتظر الإرسال.", waiting_many: "{{count}} تغييرًا تنتظر الإرسال.", waiting_other: "{{count}} تغييرًا تنتظر الإرسال.", sending: "جارٍ إرسال تغييراتك…", sendNow: "أرسل الآن",
+      synced_zero: "لم يتم إرسال أي تغيير.", synced_one: "تم إرسال تغيير واحد تم حفظه دون اتصال.", synced_two: "تم إرسال تغييرين تم حفظهما دون اتصال.", synced_few: "تم إرسال {{count}} تغييرات تم حفظها دون اتصال.", synced_many: "تم إرسال {{count}} تغييرًا تم حفظها دون اتصال.", synced_other: "تم إرسال {{count}} تغييرًا تم حفظها دون اتصال.",
+      someFailed_zero: "لم يرفض الخادم أي تغيير.", someFailed_one: "رفض الخادم تغييرًا واحدًا.", someFailed_two: "رفض الخادم تغييرين.", someFailed_few: "رفض الخادم {{count}} تغييرات.", someFailed_many: "رفض الخادم {{count}} تغييرًا.", someFailed_other: "رفض الخادم {{count}} تغييرًا.",
+      problems_zero: "لا توجد مشكلات.", problems_one: "تعذّر على الخادم حفظ تغيير واحد.", problems_two: "تعذّر على الخادم حفظ تغييرين.", problems_few: "تعذّر على الخادم حفظ {{count}} تغييرات.", problems_many: "تعذّر على الخادم حفظ {{count}} تغييرًا.", problems_other: "تعذّر على الخادم حفظ {{count}} تغييرًا.",
+      review: "مراجعة", reviewTitle: "تغييرات تحتاج إلى انتباه", reviewHint: "رفض الخادم هذه العناصر (مثلًا: مخزون غير كافٍ أو فاتورة مدفوعة بالفعل). تحقق من السبب وصحّحه في الشاشة المعتادة ثم احذف النسخة المحفوظة هنا.",
+      discard: "حذف", discarded: "تم الحذف.", close: "إغلاق", retry: "إعادة المحاولة",
+      kind: { patients: "مريض جديد", bills: "فاتورة جديدة", payments: "دفعة", sales: "عملية بيع بالصيدلية", appointments: "موعد", records: "سجل طبي", other: "تغيير" },
+    },
     common: { saving: "جارٍ الحفظ…", deleting: "جارٍ الحذف…", typeToSearch: "اكتب للبحث…", noMatches: "لا نتائج", required: "مطلوب" },
     login: {
       error: "رمز المستشفى أو اسم المستخدم أو كلمة المرور غير صحيحة. تحقق وحاول مجددًا.",
